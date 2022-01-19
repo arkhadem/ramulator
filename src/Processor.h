@@ -64,7 +64,7 @@ public:
     function<bool(Request)> send;
 
     Core(const Config& configs, int coreid,
-        const char* trace_fname,
+        const std::vector<const char *>& trace_fnames,
         function<bool(Request)> send_next, Cache* llc,
         std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory);
     void tick();
@@ -97,7 +97,8 @@ public:
     bool reached_limit = false;
 
 private:
-    Trace trace;
+    std::vector<Trace> traces;
+    int last_trace;
     Window window;
 
     long bubble_cnt;

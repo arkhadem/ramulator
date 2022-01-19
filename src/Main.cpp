@@ -172,13 +172,15 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
     run_cputrace(configs, memory, files);
   } else if (configs["trace_type"] == "DRAM") {
     run_dramtrace(configs, memory, files[0]);
+  } else if (configs["trace_type"] == "GPIC") {
+    run_cputrace(configs, memory, files);
   }
 }
 
 int main(int argc, const char *argv[])
 {
     if (argc < 2) {
-        printf("Usage: %s <configs-file> --mode=cpu,dram [--stats <filename>] <trace-filename1> <trace-filename2>\n"
+        printf("Usage: %s <configs-file> --mode=cpu,dram,gpic [--stats <filename>] <trace-filename1> <trace-filename2>\n"
             "Example: %s ramulator-configs.cfg --mode=cpu cpu.trace cpu.trace\n", argv[0], argv[0]);
         return 0;
     }
@@ -194,6 +196,9 @@ int main(int argc, const char *argv[])
       configs.add("trace_type", "CPU");
     } else if (strcmp(trace_type, "dram") == 0) {
       configs.add("trace_type", "DRAM");
+    } else if (strcmp(trace_type, "gpic") == 0) {
+      configs.add("trace_type", "GPIC");
+      assert((configs.has_core_caches()&&configs.has_l3_cache())||"GPIC mode needs all cache levels");
     } else {
       printf("invalid trace type: %s\n", trace_type);
       assert(false);

@@ -4,9 +4,9 @@
 #include <string>
 
 // FIXME Find better way to decide where does it come from
-#if !defined(RAMULATOR)
-#define INTEGRATED_WITH_GEM5
-#endif
+// #if !defined(RAMULATOR)
+// #define INTEGRATED_WITH_GEM5
+// #endif
 
 #ifdef INTEGRATED_WITH_GEM5
 #include "base/statistics.hh"

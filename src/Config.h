@@ -8,6 +8,8 @@
 #include <iostream>
 #include <cassert>
 
+// #define DEBUG
+
 namespace ramulator
 {
 
@@ -109,6 +111,13 @@ public:
           return true;
         }
         return false;
+      }
+      return false;
+    }
+    bool is_gpic() const {
+      // the default value is false
+      if ((options.find("trace_type"))->second == "GPIC") {
+        return true;
       }
       return false;
     }

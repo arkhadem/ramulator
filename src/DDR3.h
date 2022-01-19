@@ -110,8 +110,11 @@ public:
 
     /* Translate */
     Command translate[int(Request::Type::MAX)] = {
-        Command::RD,  Command::WR,
-        Command::REF, Command::PDE, Command::SRE
+        Command::RD,        // READ
+        Command::WR,        // WRITE
+        Command::REF,       // REFRESH
+        Command::PDE,       // POWERDOWN
+        Command::SRE        // SELFREFRESH
     };
 
     /* Prerequisite */

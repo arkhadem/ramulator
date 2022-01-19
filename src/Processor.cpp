@@ -1,5 +1,6 @@
 #include "Processor.h"
 #include <cassert>
+#include <cstdio>
 
 using namespace std;
 using namespace ramulator;
@@ -24,20 +25,31 @@ Processor::Processor(const Config& configs,
   for (int i = 0 ; i < tracenum ; ++i) {
     printf("trace_list[%d]: %s\n", i, trace_list[i]);
   }
-  if (no_shared_cache) {
-    for (int i = 0 ; i < tracenum ; ++i) {
-      cores.emplace_back(new Core(
-          configs, i, trace_list[i], send_memory, nullptr,
-          cachesys, memory));
-    }
+  int core_num;
+
+  if (configs.is_gpic()) {
+    core_num = 1;
+    cores.emplace_back(new Core(configs, 0, trace_list,
+            std::bind(&Cache::send, &llc, std::placeholders::_1),
+            &llc, cachesys, memory));
   } else {
-    for (int i = 0 ; i < tracenum ; ++i) {
-      cores.emplace_back(new Core(configs, i, trace_list[i],
-          std::bind(&Cache::send, &llc, std::placeholders::_1),
-          &llc, cachesys, memory));
+    core_num = tracenum;
+    if (no_shared_cache) {
+      for (int i = 0 ; i < core_num ; ++i) {
+        cores.emplace_back(new Core(
+            configs, i, trace_list[i], send_memory, nullptr,
+            cachesys, memory));
+      }
+    } else {
+      for (int i = 0 ; i < core_num ; ++i) {
+        cores.emplace_back(new Core(configs, i, trace_list[i],
+            std::bind(&Cache::send, &llc, std::placeholders::_1),
+            &llc, cachesys, memory));
+      }
     }
   }
-  for (int i = 0 ; i < tracenum ; ++i) {
+
+  for (int i = 0 ; i < core_num ; ++i) {
     cores[i]->callback = std::bind(&Processor::receive, this,
         placeholders::_1);
   }
@@ -137,15 +149,19 @@ void Processor::reset_stats() {
 }
 
 Core::Core(const Config& configs, int coreid,
-    const char* trace_fname, function<bool(Request)> send_next,
+    const std::vector<const char *>& trace_fnames, function<bool(Request)> send_next,
     Cache* llc, std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory)
     : id(coreid), no_core_caches(!configs.has_core_caches()),
     no_shared_cache(!configs.has_l3_cache()),
-    llc(llc), trace(trace_fname), memory(memory)
+    llc(llc), traces(std::vector<Trace>()), last_trace(0), memory(memory)
 {
   // set expected limit instruction for calculating weighted speedup
   expected_limit_insts = configs.get_expected_limit_insts();
-  trace.expected_limit_insts = expected_limit_insts;
+  for (auto &trace_fname : trace_fnames) {
+    Trace trace(trace_fname);
+    trace.expected_limit_insts = expected_limit_insts;
+    traces.push_back(trace);
+  }
 
   // Build cache hierarchy
   if (no_core_caches) {
@@ -372,7 +388,7 @@ void Window::set_ready(long addr, int mask)
     }
 }
 
-
+const char* req_type_names[] = { "READ", "WRITE", "REFRESH", "POWERDOWN", "SELFREFRESH", "EXTENSION", "MAX" };
 
 Trace::Trace(const char* trace_fname) : file(trace_fname), trace_name(trace_fname)
 {
@@ -389,8 +405,12 @@ bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Ty
     if (file.eof()) {
       file.clear();
       file.seekg(0, file.beg);
-      getline(file, line);
-      //return false;
+      if(expected_limit_insts == 0) {
+        return false;
+      }
+      else { // starting over the input trace file
+        getline(file, line);
+      }
     }
     size_t pos, end;
     bubble_cnt = std::stoul(line, &pos, 10);
@@ -404,6 +424,9 @@ bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Ty
     else if (line.substr(pos)[0] == 'W')
         req_type = Request::Type::WRITE;
     else assert(false);
+#ifdef DEBUG
+    printf("get_unfiltered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
+#endif
     return true;
 }
 
@@ -449,6 +472,9 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
         has_write = true;
         write_addr = stoul(line.substr(pos), NULL, 0);
     }
+#ifdef DEBUG
+    printf("get_filtered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
+#endif
     return true;
 }
 
@@ -469,5 +495,8 @@ bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)
     else if (line.substr(pos)[0] == 'W')
         req_type = Request::Type::WRITE;
     else assert(false);
+#ifdef DEBUG
+    printf("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
+#endif
     return true;
 }
