@@ -18,9 +18,10 @@ namespace ramulator
 
 class Trace {
 public:
-    Trace(const char* trace_fname);
+    Trace(vector<const char*> trace_fname);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
+    bool get_gpic_request(std::string& req_type);
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     // trace file format 2:
@@ -30,8 +31,9 @@ public:
     long expected_limit_insts = 0;
 
 private:
-    std::ifstream file;
-    std::string trace_name;
+    int last_trace;
+    vector<std::ifstream> files;
+    vector<std::string> trace_names;
 };
 
 
@@ -78,6 +80,7 @@ public:
 
     bool no_core_caches = true;
     bool no_shared_cache = true;
+    bool gpic_mode = false;
     int l1_size = 1 << 15;
     int l1_assoc = 1 << 3;
     int l1_blocksz = 1 << 6;
@@ -97,8 +100,7 @@ public:
     bool reached_limit = false;
 
 private:
-    std::vector<Trace> traces;
-    int last_trace;
+    Trace trace;
     Window window;
 
     long bubble_cnt;

@@ -30,6 +30,8 @@ public:
         MAX
     } type;
 
+    std::string Opcode();
+
     long arrive = -1;
     long depart = -1;
     function<void(Request&)> callback; // call back with more info

@@ -25,31 +25,33 @@ Processor::Processor(const Config& configs,
   for (int i = 0 ; i < tracenum ; ++i) {
     printf("trace_list[%d]: %s\n", i, trace_list[i]);
   }
-  int core_num;
 
-  if (configs.is_gpic()) {
-    core_num = 1;
-    cores.emplace_back(new Core(configs, 0, trace_list,
-            std::bind(&Cache::send, &llc, std::placeholders::_1),
-            &llc, cachesys, memory));
+  vector< vector<const char*> > trace_lists;
+  for (int i = 0 ; i < configs.get_core_num() ; ++i) {
+    trace_lists.push_back(vector<const char*>());
+  }
+  int core_id = 0;
+  for (auto &trace : trace_list) {
+    trace_lists[core_id].push_back(trace);
+    core_id = (core_id + 1) % configs.get_core_num();
+  }
+
+
+  if (no_shared_cache) {
+    for (int i = 0 ; i < configs.get_core_num() ; ++i) {
+      cores.emplace_back(new Core(
+          configs, i, trace_lists[i], send_memory, nullptr,
+          cachesys, memory));
+    }
   } else {
-    core_num = tracenum;
-    if (no_shared_cache) {
-      for (int i = 0 ; i < core_num ; ++i) {
-        cores.emplace_back(new Core(
-            configs, i, trace_list[i], send_memory, nullptr,
-            cachesys, memory));
-      }
-    } else {
-      for (int i = 0 ; i < core_num ; ++i) {
-        cores.emplace_back(new Core(configs, i, trace_list[i],
-            std::bind(&Cache::send, &llc, std::placeholders::_1),
-            &llc, cachesys, memory));
-      }
+    for (int i = 0 ; i < configs.get_core_num() ; ++i) {
+      cores.emplace_back(new Core(configs, i, trace_lists[i],
+          std::bind(&Cache::send, &llc, std::placeholders::_1),
+          &llc, cachesys, memory));
     }
   }
 
-  for (int i = 0 ; i < core_num ; ++i) {
+  for (int i = 0 ; i < configs.get_core_num() ; ++i) {
     cores[i]->callback = std::bind(&Processor::receive, this,
         placeholders::_1);
   }
@@ -152,16 +154,12 @@ Core::Core(const Config& configs, int coreid,
     const std::vector<const char *>& trace_fnames, function<bool(Request)> send_next,
     Cache* llc, std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory)
     : id(coreid), no_core_caches(!configs.has_core_caches()),
-    no_shared_cache(!configs.has_l3_cache()),
-    llc(llc), traces(std::vector<Trace>()), last_trace(0), memory(memory)
+    no_shared_cache(!configs.has_l3_cache()), gpic_mode(configs.is_gpic()),
+    llc(llc), trace(trace_fnames), memory(memory)
 {
   // set expected limit instruction for calculating weighted speedup
   expected_limit_insts = configs.get_expected_limit_insts();
-  for (auto &trace_fname : trace_fnames) {
-    Trace trace(trace_fname);
-    trace.expected_limit_insts = expected_limit_insts;
-    traces.push_back(trace);
-  }
+  trace.expected_limit_insts = expected_limit_insts;
 
   // Build cache hierarchy
   if (no_core_caches) {
@@ -183,7 +181,11 @@ Core::Core(const Config& configs, int coreid,
 
     first_level_cache = caches[1].get();
   }
-  if (no_core_caches) {
+
+  if (gpic_mode) {
+    more_reqs = trace.get_gpic_request(
+        bubble_cnt, req_addr, req_type);
+  } else if (no_core_caches) {
     more_reqs = trace.get_filtered_request(
         bubble_cnt, req_addr, req_type);
     req_addr = memory.page_allocator(req_addr, id);
@@ -193,7 +195,6 @@ Core::Core(const Config& configs, int coreid,
     req_addr = memory.page_allocator(req_addr, id);
   }
 
-  
   // regStats
   record_cycs.name("record_cycs_core_" + to_string(id))
              .desc("Record cycle number for calculating weighted speedup. (Only valid when expected limit instruction number is non zero in config file.)")
@@ -390,76 +391,103 @@ void Window::set_ready(long addr, int mask)
 
 const char* req_type_names[] = { "READ", "WRITE", "REFRESH", "POWERDOWN", "SELFREFRESH", "EXTENSION", "MAX" };
 
-Trace::Trace(const char* trace_fname) : file(trace_fname), trace_name(trace_fname)
+Trace::Trace(vector<const char*> trace_fnames)
 {
+  for (auto &trace_fname : trace_fnames) {
+    trace_names.push_back(trace_fname);
+    std::ifstream file(trace_fname);
     if (!file.good()) {
-        std::cerr << "Bad trace file: " << trace_fname << std::endl;
-        exit(1);
+      std::cerr << "Bad trace file: " << trace_fname << std::endl;
+      exit(1);
     }
+    files.push_back(file);
+  }
+}
+
+bool Trace::get_gpic_request(std::string& req_type)
+{
+  string line;
+  for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+    int trace_idx = (last_trace + trace_offset) % files.size();
+    getline(files[trace_idx], line);
+    if (files[trace_idx].eof()) {
+      files[trace_idx].close();
+      files.erase (files.begin()+trace_idx);
+      trace_offset--;
+      continue;
+    }
+
+    size_t pos;
+    req_type = line;
+
+#ifdef DEBUG
+    printf("get_gpic_request returned opcode: %s\n", req_type.c_str()]);
+#endif
+    last_trace++;
+    return true;
+  }
+  return false;
 }
 
 bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type)
 {
     string line;
-    getline(file, line);
-    if (file.eof()) {
-      file.clear();
-      file.seekg(0, file.beg);
-      if(expected_limit_insts == 0) {
-        return false;
+    for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+      int trace_idx = (last_trace + trace_offset) % files.size();
+      getline(files[trace_idx], line);
+      if (files[trace_idx].eof()) {
+        files[trace_idx].clear();
+        files[trace_idx].seekg(0, files[trace_idx].beg);
+        if(expected_limit_insts == 0) {
+          files[trace_idx].close();
+          files.erase (files.begin()+trace_idx);
+          trace_offset--;
+          continue;
+        }
+        else { // starting over the input trace file
+          getline(files[trace_idx], line);
+        }
       }
-      else { // starting over the input trace file
-        getline(file, line);
-      }
-    }
-    size_t pos, end;
-    bubble_cnt = std::stoul(line, &pos, 10);
-    pos = line.find_first_not_of(' ', pos+1);
-    req_addr = std::stoul(line.substr(pos), &end, 0);
+      size_t pos, end;
+      bubble_cnt = std::stoul(line, &pos, 10);
+      pos = line.find_first_not_of(' ', pos+1);
+      req_addr = std::stoul(line.substr(pos), &end, 0);
 
-    pos = line.find_first_not_of(' ', pos+end);
+      pos = line.find_first_not_of(' ', pos+end);
 
-    if (pos == string::npos || line.substr(pos)[0] == 'R')
-        req_type = Request::Type::READ;
-    else if (line.substr(pos)[0] == 'W')
-        req_type = Request::Type::WRITE;
-    else assert(false);
+      if (pos == string::npos || line.substr(pos)[0] == 'R')
+          req_type = Request::Type::READ;
+      else if (line.substr(pos)[0] == 'W')
+          req_type = Request::Type::WRITE;
+      else assert(false);
 #ifdef DEBUG
     printf("get_unfiltered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
 #endif
-    return true;
+      last_trace++;
+      return true;
+    }
+    return false;
 }
 
 bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type)
 {
-    static bool has_write = false;
-    static long write_addr;
-    static int line_num = 0;
-    if (has_write){
-        bubble_cnt = 0;
-        req_addr = write_addr;
-        req_type = Request::Type::WRITE;
-        has_write = false;
-        return true;
+  string line;
+  for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+    int trace_idx = (last_trace + trace_offset) % files.size();
+    getline(files[trace_idx], line);
+    if (files[trace_idx].eof()) {
+      files[trace_idx].clear();
+      files[trace_idx].seekg(0, files[trace_idx].beg);
+      if(expected_limit_insts == 0) {
+        files[trace_idx].close();
+        files.erase (files.begin()+trace_idx);
+        trace_offset--;
+        continue;
+      }
+      else { // starting over the input trace file
+        getline(files[trace_idx], line);
+      }
     }
-    string line;
-    getline(file, line);
-    line_num ++;
-    if (file.eof() || line.size() == 0) {
-        file.clear();
-        file.seekg(0, file.beg);
-        line_num = 0;
-
-        if(expected_limit_insts == 0) {
-            has_write = false;
-            return false;
-        }
-        else { // starting over the input trace file
-            getline(file, line);
-            line_num++;
-        }
-    }
-
     size_t pos, end;
     bubble_cnt = std::stoul(line, &pos, 10);
 
@@ -468,23 +496,28 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
     req_type = Request::Type::READ;
 
     pos = line.find_first_not_of(' ', pos+end);
-    if (pos != string::npos){
-        has_write = true;
-        write_addr = stoul(line.substr(pos), NULL, 0);
-    }
 #ifdef DEBUG
-    printf("get_filtered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
+  printf("get_filtered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
 #endif
+    last_trace++;
     return true;
+  }
+  return false;
 }
 
 bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)
 {
-    string line;
-    getline(file, line);
-    if (file.eof()) {
-        return false;
+  string line;
+  for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+    int trace_idx = (last_trace + trace_offset) % files.size();
+    getline(files[trace_idx], line);
+    if (files[trace_idx].eof()) {
+      files[trace_idx].close();
+      files.erase (files.begin()+trace_idx);
+      trace_offset--;
+      continue;
     }
+
     size_t pos;
     req_addr = std::stoul(line, &pos, 16);
 
@@ -498,5 +531,8 @@ bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)
 #ifdef DEBUG
     printf("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
 #endif
+    last_trace++;
     return true;
+  }
+  return false;
 }

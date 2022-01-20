@@ -180,8 +180,8 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
 int main(int argc, const char *argv[])
 {
     if (argc < 2) {
-        printf("Usage: %s <configs-file> --mode=cpu,dram,gpic [--stats <filename>] <trace-filename1> <trace-filename2>\n"
-            "Example: %s ramulator-configs.cfg --mode=cpu cpu.trace cpu.trace\n", argv[0], argv[0]);
+        printf("Usage: %s <configs-file> --mode=cpu,dram,gpic [--core=<core-num>] [--stats <filename>] <trace-filename1> <trace-filename2>\n"
+            "Example: %s ramulator-configs.cfg --mode=cpu --core=1 cpu.trace cpu.trace\n", argv[0], argv[0]);
         return 0;
     }
 
@@ -205,6 +205,20 @@ int main(int argc, const char *argv[])
     }
 
     int trace_start = 3;
+    int core_num = 0;
+
+    const char *core_num_str = strstr(argv[3], "--core=");
+    if (core_num_str != nullptr) {
+      core_num_str = strstr(argv[3], "=");
+      core_num_str++;
+      core_num = stoi(core_num_str);
+      if (core_num < 1 || core_num > 16) {
+        printf("core num must be >= 1 and <= 16\n");
+        assert(false);
+      }
+      trace_start++;
+    }
+
     string stats_out;
     if (strcmp(argv[trace_start], "--stats") == 0) {
       Stats::statlist.output(argv[trace_start+1]);
@@ -224,7 +238,16 @@ int main(int argc, const char *argv[])
     }
 
     std::vector<const char*> files(&argv[trace_start], &argv[argc]);
-    configs.set_core_num(argc - trace_start);
+    if (core_num != 0) {
+      if (argc - trace_start < core_num) {
+        printf("number of trace files must be >= core num\n");
+        assert(false);
+      }
+      configs.set_core_num(core_num);
+    } else {
+      configs.set_core_num(argc - trace_start);
+    }
+    
 
     if (standard == "DDR3") {
       DDR3* ddr3 = new DDR3(configs["org"], configs["speed"]);
