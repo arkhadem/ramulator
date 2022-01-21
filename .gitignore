@@ -5,3 +5,5 @@ obj/
 
 # Compiled target executable files
 ramulator
+
+.vscode/

@@ -27,14 +27,19 @@ public:
         POWERDOWN,
         SELFREFRESH,
         EXTENSION,
+        GPIC,
         MAX
     } type;
 
-    std::string Opcode();
+    std::string opcode;
+    int en = 0;
 
     long arrive = -1;
     long depart = -1;
     function<void(Request&)> callback; // call back with more info
+
+    Request(std::string& opcode, int en, long addr, function<void(Request&)> callback, int coreid = 0)
+        : is_first_command(true), addr(addr), coreid(coreid), type(Type::GPIC), opcode(opcode), en(en), callback(callback) {}
 
     Request(long addr, Type type, int coreid = 0)
         : is_first_command(true), addr(addr), coreid(coreid), type(type),

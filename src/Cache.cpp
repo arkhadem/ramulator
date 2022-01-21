@@ -101,9 +101,48 @@ Cache::Cache(int size, int assoc, int block_size,
 }
 
 bool Cache::send(Request req) {
+  if (req.type == Request::Type::GPIC) {
+    debug("level %d req.opcode %s req.en %d req.addr %lx",
+      int(level), req.opcode.c_str(), req.en, req.addr);
+
+    if ((req.opcode.find("load") == string::npos) && (req.opcode.find("load") == string::npos)) {
+      // it's not a load or store
+      // ready for hit and erase after GPIC delay
+      cachesys->hit_list.push_back(
+        make_pair(cachesys->clk + latency_each[int(level)] + GPIC_DELAY[req.opcode], req));
+    } else {
+      // it's a load or store
+      // compute how many access is needed
+      int data_type = 0;
+      if (req.opcode.find("_b") != string::npos) {
+        data_type = 8;
+      } else if (req.opcode.find("_w") != string::npos) {
+        data_type = 16;
+      } else if ((req.opcode.find("_dw") != string::npos) || (req.opcode.find("_f") != string::npos)) {
+        data_type = 32;
+      } else if ((req.opcode.find("_qw") != string::npos) || (req.opcode.find("_df") != string::npos)) {
+        data_type = 64;
+      } else {
+        assert("false" && "data type not found");
+      }
+      int access_needed = (int)(std::ceil((float)(data_type * req.en / 8) / (float)(block_size)));
+      assert(gpic_addr_to_num_mem_op.count(req.addr) == 0);
+      gpic_addr_to_num_mem_op[req.addr] = access_needed;
+      for (int i = 0; i < access_needed; i++) {
+        // make the request and send it to itself
+        Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
+        long req_addr = req.addr + i * block_size;
+        Request mem_req(req_addr, req_type, std::bind(&Cache::callback, this, placeholders::_1), req.coreid);
+        assert(mem_addr_to_gpic_op.count(mem_req.addr) == 0);
+        mem_addr_to_gpic_op[mem_req.addr] = req;
+        send(mem_req);
+      }
+    }
+  }
+
   debug("level %d req.addr %lx req.type %d, index %d, tag %ld",
-      int(level), req.addr, int(req.type), get_index(req.addr),
-      get_tag(req.addr));
+    int(level), req.addr, int(req.type), get_index(req.addr),
+    get_tag(req.addr));
 
   cache_total_access++;
   if (req.type == Request::Type::WRITE) {
@@ -121,11 +160,11 @@ bool Cache::send(Request req) {
         line->dirty || (req.type == Request::Type::WRITE)));
     lines.erase(line);
     cachesys->hit_list.push_back(
-        make_pair(cachesys->clk + latency[int(level)], req));
+        make_pair(cachesys->clk + latency_each[int(level)], req));
 
     debug("hit, update timestamp %ld", cachesys->clk);
     debug("hit finish time %ld",
-        cachesys->clk + latency[int(level)]);
+        cachesys->clk + latency_each[int(level)]);
 
     return true;
 
@@ -153,7 +192,7 @@ bool Cache::send(Request req) {
     if (mshr != mshr_entries.end()) {
       debug("hit mshr");
       cache_mshr_hit++;
-      mshr->second->dirty = dirty || mshr->second->dirty;
+      mshr->second->dirty = (dirty || mshr->second->dirty);
       return true;
     }
 
@@ -184,13 +223,11 @@ bool Cache::send(Request req) {
     mshr_entries.push_back(make_pair(req.addr, newline));
 
     // Send the request to next level;
+    std::pair<long, Request> time_req = make_pair(cachesys->clk + latency_each[int(level)], req);
     if (!is_last_level) {
-      if(!lower_cache->send(req)) {
-        retry_list.push_back(req);
-      }
+      retry_list.push_back(time_req);
     } else {
-      cachesys->wait_list.push_back(
-          make_pair(cachesys->clk + latency[int(level)], req));
+      cachesys->wait_list.push_back(time_req);
     }
     return true;
   }
@@ -285,13 +322,13 @@ void Cache::evict(std::list<Line>* lines,
     if (dirty) {
       Request write_req(addr, Request::Type::WRITE);
       cachesys->wait_list.push_back(make_pair(
-          cachesys->clk + invalidate_time + latency[int(level)],
+          cachesys->clk + invalidate_time + latency_each[int(level)],
           write_req));
 
       debug("inject one write request to memory system "
           "addr %lx, invalidate time %ld, issue time %ld",
           write_req.addr, invalidate_time,
-          cachesys->clk + invalidate_time + latency[int(level)]);
+          cachesys->clk + invalidate_time + latency_each[int(level)]);
     }
   }
 
@@ -367,19 +404,30 @@ bool Cache::need_eviction(const std::list<Line>& lines, long addr) {
 void Cache::callback(Request& req) {
   debug("level %d", int(level));
 
-  auto it = find_if(mshr_entries.begin(), mshr_entries.end(),
-      [&req, this](std::pair<long, std::list<Line>::iterator> mshr_entry) {
-        return (align(mshr_entry.first) == align(req.addr));
-      });
+  if (mem_addr_to_gpic_op.count(req.addr) != 0) {
+    // It's the result of a GPIC load/store command
+    Request gpic_req = mem_addr_to_gpic_op[req.addr];
+    mem_addr_to_gpic_op.erase(req.addr);
+    gpic_addr_to_num_mem_op[gpic_req.addr]--;
+    if (gpic_addr_to_num_mem_op[gpic_req.addr] == 0) {
+      gpic_addr_to_num_mem_op.erase(gpic_req.addr);
+      gpic_req.callback(gpic_req);
+    }
+  } else {
+    auto it = find_if(mshr_entries.begin(), mshr_entries.end(),
+        [&req, this](std::pair<long, std::list<Line>::iterator> mshr_entry) {
+          return (align(mshr_entry.first) == align(req.addr));
+        });
 
-  if (it != mshr_entries.end()) {
-    it->second->lock = false;
-    mshr_entries.erase(it);
-  }
+    if (it != mshr_entries.end()) {
+      it->second->lock = false;
+      mshr_entries.erase(it);
+    }
 
-  if (higher_cache.size()) {
-    for (auto hc : higher_cache) {
-      hc->callback(req);
+    if (higher_cache.size()) {
+      for (auto hc : higher_cache) {
+        hc->callback(req);
+      }
     }
   }
 }
@@ -389,9 +437,15 @@ void Cache::tick() {
     if(!lower_cache->is_last_level)
         lower_cache->tick();
 
-    for (auto it = retry_list.begin(); it != retry_list.end(); it++) {
-        if(lower_cache->send(*it))
-            it = retry_list.erase(it);
+    auto it = retry_list.begin();
+    while (it != retry_list.end()) {
+      if (cachesys->clk >= it->first) {
+        if (lower_cache->send(it->second)) {
+          it = retry_list.erase(it);
+        }
+      } else {
+        ++it;
+      }
     }
 
 }

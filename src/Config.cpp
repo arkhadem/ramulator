@@ -58,6 +58,8 @@ void Config::parse(const string& fname)
           expected_limit_insts = atoi(tokens[1].c_str());
         } else if (tokens[0] == "warmup_insts") {
           warmup_insts = atoi(tokens[1].c_str());
+        } else if (tokens[0] == "gpic_level") {
+          gpic_level = atoi(tokens[1].c_str());
         }
     }
     file.close();

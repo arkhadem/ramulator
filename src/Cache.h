@@ -13,6 +13,7 @@
 #include <memory>
 #include <queue>
 #include <list>
+#include <math.h>
 
 namespace ramulator
 {
@@ -56,7 +57,7 @@ public:
   void tick();
 
   // L1, L2, L3 accumulated latencies
-  int latency[int(Level::MAX)] = {4, 4 + 12, 4 + 12 + 31};
+  // int latency[int(Level::MAX)] = {4, 4 + 12, 4 + 12 + 31};
   int latency_each[int(Level::MAX)] = {4, 12, 31};
 
   std::shared_ptr<CacheSystem> cachesys;
@@ -83,9 +84,57 @@ protected:
   unsigned int tag_offset;
   unsigned int mshr_entry_num;
   std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
-  std::list<Request> retry_list;
+  std::list<std::pair<long, Request> > retry_list;
 
   std::map<int, std::list<Line> > cache_lines;
+
+  std::map<std::string, int> GPIC_DELAY = {
+    {"_pc_load_b", 8},
+    {"_pc_load_w", 16},
+    {"_pc_load_dw", 32},
+    {"_pc_load_qw", 64},
+    {"_pc_load_f", 32},
+    {"_pc_load_df", 64},
+    {"_pc_load1_b", 8},
+    {"_pc_load1_w", 16},
+    {"_pc_load1_dw", 32},
+    {"_pc_load1_qw", 64},
+    {"_pc_load1_f", 32},
+    {"_pc_load1_df", 64},
+    {"_pc_store_b", 8},
+    {"_pc_store_w", 16},
+    {"_pc_store_dw", 32},
+    {"_pc_store_qw", 64},
+    {"_pc_store_f", 32},
+    {"_pc_store_df", 64},
+    {"_pc_add_b", 8},
+    {"_pc_add_w", 16},
+    {"_pc_add_dw", 32},
+    {"_pc_add_qw", 64},
+    {"_pc_add_f", 223},
+    {"_pc_add_df", 902},
+    {"_pc_mull_b", 42},
+    {"_pc_mull_w", 152},
+    {"_pc_mull_dw", 560},
+    {"_pc_mull_qw", 2144},
+    {"_pc_mul_f", 346},
+    {"_pc_mul_df", 1463},
+    {"_pc_min_b", 32},
+    {"_pc_min_w", 64},
+    {"_pc_min_dw", 128},
+    {"_pc_min_qw", 256},
+    {"_pc_min_f", 128},
+    {"_pc_min_df", 256},
+    {"_pc_max_b", 32},
+    {"_pc_max_w", 64},
+    {"_pc_max_dw", 128},
+    {"_pc_max_qw", 256},
+    {"_pc_max_f", 128},
+    {"_pc_max_df", 256},
+  };
+
+  std::map<long, int> gpic_addr_to_num_mem_op;
+  std::map<long, Request> mem_addr_to_gpic_op;
 
   int calc_log2(int val) {
       int n = 0;

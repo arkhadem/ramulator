@@ -25,6 +25,7 @@ private:
     int core_num = 0;
     long expected_limit_insts = 0;
     long warmup_insts = 0;
+    int gpic_level = 1;
 
 public:
     Config() {}
@@ -64,6 +65,7 @@ public:
     int get_core_num() const {return core_num;}
     long get_expected_limit_insts() const {return expected_limit_insts;}
     long get_warmup_insts() const {return warmup_insts;}
+    int get_gpic_level() const {return gpic_level;}
 
     bool has_l3_cache() const {
       if (options.find("cache") != options.end()) {

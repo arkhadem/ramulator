@@ -35,10 +35,12 @@ using namespace ramulator;
 bool ramulator::warmup_complete = false;
 
 template<typename T>
-void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const char* tracename) {
+void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const std::vector<const char *>& files) {
 
     /* initialize DRAM trace */
-    Trace trace(tracename);
+    // assuming only one file
+    assert(files.size() == 1);
+    Trace trace(files);
 
     /* run simulation */
     bool stall = false, end = false;
@@ -171,7 +173,7 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
   if (configs["trace_type"] == "CPU") {
     run_cputrace(configs, memory, files);
   } else if (configs["trace_type"] == "DRAM") {
-    run_dramtrace(configs, memory, files[0]);
+    run_dramtrace(configs, memory, files);
   } else if (configs["trace_type"] == "GPIC") {
     run_cputrace(configs, memory, files);
   }
@@ -198,7 +200,7 @@ int main(int argc, const char *argv[])
       configs.add("trace_type", "DRAM");
     } else if (strcmp(trace_type, "gpic") == 0) {
       configs.add("trace_type", "GPIC");
-      assert((configs.has_core_caches()&&configs.has_l3_cache())||"GPIC mode needs all cache levels");
+      assert((configs.has_core_caches()&&configs.has_l3_cache())||"GPIC mode need \"all\" cache levels");
     } else {
       printf("invalid trace type: %s\n", trace_type);
       assert(false);

@@ -21,7 +21,7 @@ public:
     Trace(vector<const char*> trace_fname);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
-    bool get_gpic_request(std::string& req_type);
+    bool get_gpic_request(std::string& req_opcode, int& req_en, long& req_addr);
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     // trace file format 2:
@@ -32,7 +32,7 @@ public:
 
 private:
     int last_trace;
-    vector<std::ifstream> files;
+    vector<std::ifstream*> files;
     vector<std::string> trace_names;
 };
 
@@ -105,6 +105,8 @@ private:
 
     long bubble_cnt;
     long req_addr = -1;
+    int req_en;
+    std::string req_opcode;
     Request::Type req_type;
     bool more_reqs;
     long last = 0;

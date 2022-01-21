@@ -173,18 +173,34 @@ Core::Core(const Config& configs, int coreid,
     caches.emplace_back(new Cache(
         l1_size, l1_assoc, l1_blocksz, l1_mshr_num,
         Cache::Level::L1, cachesys));
-    send = bind(&Cache::send, caches[1].get(), placeholders::_1);
     if (llc != nullptr) {
       caches[0]->concatlower(llc);
     }
     caches[1]->concatlower(caches[0].get());
 
     first_level_cache = caches[1].get();
+
+    if (configs.is_gpic()) {
+      switch (configs.get_gpic_level())
+      {
+      case 1:
+        send = bind(&Cache::send, caches[1].get(), placeholders::_1);
+        break;
+      case 2:
+        send = bind(&Cache::send, caches[0].get(), placeholders::_1);
+        break;
+      case 3:
+        send = send_next;
+      default:
+        break;
+      }
+    } else {
+      send = bind(&Cache::send, caches[1].get(), placeholders::_1);
+    }
   }
 
   if (gpic_mode) {
-    more_reqs = trace.get_gpic_request(
-        bubble_cnt, req_addr, req_type);
+    // DO NOTHING
   } else if (no_core_caches) {
     more_reqs = trace.get_filtered_request(
         bubble_cnt, req_addr, req_type);
@@ -238,60 +254,90 @@ void Core::tick()
 
     // bubbles (non-memory operations)
     int inserted = 0;
-    while (bubble_cnt > 0) {
-        if (inserted == window.ipc) return;
-        if (window.is_full()) return;
+    if (gpic_mode) {
+      while ((inserted < window.ipc) && (window.is_full() != false)) {
+        more_reqs = trace.get_gpic_request(req_opcode, req_en, req_addr);
 
-        window.insert(true, -1);
-        inserted++;
-        bubble_cnt--;
+        if (!more_reqs) {
+          break;
+        }
+
+        if (req_addr != -1) {
+          // it's a load or store instruction
+          window.insert(false, req_addr);
+        } else {
+          // it's a computational instruction
+          window.insert(true, -1);
+        }
+
+        Request req(req_opcode, req_en, req_addr, callback, id);
+        if (!send(req)) return;
+
         cpu_inst++;
+        inserted++;
         if (long(cpu_inst.value()) == expected_limit_insts && !reached_limit) {
           record_cycs = clk;
           record_insts = long(cpu_inst.value());
           memory.record_core(id);
           reached_limit = true;
         }
-    }
-
-    if (req_type == Request::Type::READ) {
-        // read request
-        if (inserted == window.ipc) return;
-        if (window.is_full()) return;
-
-        Request req(req_addr, req_type, callback, id);
-        if (!send(req)) return;
-
-        window.insert(false, req_addr);
-        cpu_inst++;
-    }
-    else {
-        // write request
-        assert(req_type == Request::Type::WRITE);
-        Request req(req_addr, req_type, callback, id);
-        if (!send(req)) return;
-        cpu_inst++;
-    }
-    if (long(cpu_inst.value()) == expected_limit_insts && !reached_limit) {
-      record_cycs = clk;
-      record_insts = long(cpu_inst.value());
-      memory.record_core(id);
-      reached_limit = true;
-    }
-
-    if (no_core_caches) {
-      more_reqs = trace.get_filtered_request(
-          bubble_cnt, req_addr, req_type);
-      if (req_addr != -1) {
-        req_addr = memory.page_allocator(req_addr, id);
       }
     } else {
-      more_reqs = trace.get_unfiltered_request(
-          bubble_cnt, req_addr, req_type);
-      if (req_addr != -1) {
-        req_addr = memory.page_allocator(req_addr, id);
+      while (bubble_cnt > 0) {
+          if (inserted == window.ipc) return;
+          if (window.is_full()) return;
+
+          window.insert(true, -1);
+          inserted++;
+          bubble_cnt--;
+          cpu_inst++;
+          if (long(cpu_inst.value()) == expected_limit_insts && !reached_limit) {
+            record_cycs = clk;
+            record_insts = long(cpu_inst.value());
+            memory.record_core(id);
+            reached_limit = true;
+          }
+      }
+
+      if (req_type == Request::Type::READ) {
+          // read request
+          if (inserted == window.ipc) return;
+          if (window.is_full()) return;
+
+          Request req(req_addr, req_type, callback, id);
+          if (!send(req)) return;
+
+          window.insert(false, req_addr);
+          cpu_inst++;
+      }
+      else {
+          // write request
+          assert(req_type == Request::Type::WRITE);
+          Request req(req_addr, req_type, callback, id);
+          if (!send(req)) return;
+          cpu_inst++;
+      }
+
+      if (long(cpu_inst.value()) == expected_limit_insts && !reached_limit) {
+        record_cycs = clk;
+        record_insts = long(cpu_inst.value());
+        memory.record_core(id);
+        reached_limit = true;
+      }
+
+      if (no_core_caches) {
+        more_reqs = trace.get_filtered_request(bubble_cnt, req_addr, req_type);
+        if (req_addr != -1) {
+          req_addr = memory.page_allocator(req_addr, id);
+        }
+      } else {
+        more_reqs = trace.get_unfiltered_request(bubble_cnt, req_addr, req_type);
+        if (req_addr != -1) {
+          req_addr = memory.page_allocator(req_addr, id);
+        }
       }
     }
+
     if (!more_reqs) {
       if (!reached_limit) { // if the length of this trace is shorter than expected length, then record it when the whole trace finishes, and set reached_limit to true.
         // Hasan: overriding this behavior. We start the trace from the
@@ -400,28 +446,42 @@ Trace::Trace(vector<const char*> trace_fnames)
       std::cerr << "Bad trace file: " << trace_fname << std::endl;
       exit(1);
     }
-    files.push_back(file);
+    files.push_back(&file);
   }
 }
 
-bool Trace::get_gpic_request(std::string& req_type)
+bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_addr)
 {
   string line;
-  for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+  for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
     int trace_idx = (last_trace + trace_offset) % files.size();
-    getline(files[trace_idx], line);
-    if (files[trace_idx].eof()) {
-      files[trace_idx].close();
+    getline(*files[trace_idx], line);
+    if (files[trace_idx]->eof()) {
+      files[trace_idx]->close();
       files.erase (files.begin()+trace_idx);
       trace_offset--;
       continue;
     }
 
     size_t pos;
-    req_type = line;
+    pos = line.find(' ');
+    assert(pos != string::npos);
+    req_opcode = line.substr(0, pos);
+    pos = line.find_first_not_of(' ', pos);
+    req_en = std::stoul(line, &pos, 10);
+    pos = line.find_first_not_of(' ', pos);
+    req_addr = -1;
+    if (pos == string::npos) {
+      // It's a non-memory operation
+      assert((req_opcode.find("load") == string::npos) && (req_opcode.find("load") == string::npos));
+    } else {
+      // it's a load or store, read address
+      assert((req_opcode.find("load") != string::npos) || (req_opcode.find("load") != string::npos));
+      req_addr = std::stoul(line, &pos, 10);
+    }
 
 #ifdef DEBUG
-    printf("get_gpic_request returned opcode: %s\n", req_type.c_str()]);
+    printf("get_gpic_request returned opcode: %s, enable: %d, address: %ld\n", req_opcode.c_str(), req_en, req_addr);
 #endif
     last_trace++;
     return true;
@@ -432,20 +492,20 @@ bool Trace::get_gpic_request(std::string& req_type)
 bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type)
 {
     string line;
-    for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+    for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
       int trace_idx = (last_trace + trace_offset) % files.size();
-      getline(files[trace_idx], line);
-      if (files[trace_idx].eof()) {
-        files[trace_idx].clear();
-        files[trace_idx].seekg(0, files[trace_idx].beg);
+      getline(*files[trace_idx], line);
+      if (files[trace_idx]->eof()) {
+        files[trace_idx]->clear();
+        files[trace_idx]->seekg(0, files[trace_idx]->beg);
         if(expected_limit_insts == 0) {
-          files[trace_idx].close();
+          files[trace_idx]->close();
           files.erase (files.begin()+trace_idx);
           trace_offset--;
           continue;
         }
         else { // starting over the input trace file
-          getline(files[trace_idx], line);
+          getline(*files[trace_idx], line);
         }
       }
       size_t pos, end;
@@ -472,20 +532,20 @@ bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Ty
 bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type)
 {
   string line;
-  for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+  for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
     int trace_idx = (last_trace + trace_offset) % files.size();
-    getline(files[trace_idx], line);
-    if (files[trace_idx].eof()) {
-      files[trace_idx].clear();
-      files[trace_idx].seekg(0, files[trace_idx].beg);
+    getline(*files[trace_idx], line);
+    if (files[trace_idx]->eof()) {
+      files[trace_idx]->clear();
+      files[trace_idx]->seekg(0, files[trace_idx]->beg);
       if(expected_limit_insts == 0) {
-        files[trace_idx].close();
+        files[trace_idx]->close();
         files.erase (files.begin()+trace_idx);
         trace_offset--;
         continue;
       }
       else { // starting over the input trace file
-        getline(files[trace_idx], line);
+        getline(*files[trace_idx], line);
       }
     }
     size_t pos, end;
@@ -508,11 +568,11 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
 bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)
 {
   string line;
-  for (int trace_offset = 0; trace_offset < files.size(); trace_offset++) {
+  for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
     int trace_idx = (last_trace + trace_offset) % files.size();
-    getline(files[trace_idx], line);
-    if (files[trace_idx].eof()) {
-      files[trace_idx].close();
+    getline(*files[trace_idx], line);
+    if (files[trace_idx]->eof()) {
+      files[trace_idx]->close();
       files.erase (files.begin()+trace_idx);
       trace_offset--;
       continue;
