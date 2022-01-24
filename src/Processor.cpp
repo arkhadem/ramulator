@@ -237,7 +237,9 @@ Core::Core(const Config& configs, int coreid,
 
 double Core::calc_ipc()
 {
+#ifdef DEBUG
     printf("[%d]retired: %ld, clk, %ld\n", id, retired, clk);
+#endif
     return (double) retired / clk;
 }
 
@@ -264,10 +266,10 @@ void Core::tick()
 
         if (req_addr != -1) {
           // it's a load or store instruction
-          window.insert(false, req_addr);
+          window.insert(false, req_opcode, req_addr);
         } else {
           // it's a computational instruction
-          window.insert(true, -1);
+          window.insert(true, req_opcode, -1);
         }
 
         Request req(req_opcode, req_en, req_addr, callback, id);
@@ -397,6 +399,19 @@ void Window::insert(bool ready, long addr)
 
     ready_list.at(head) = ready;
     addr_list.at(head) = addr;
+    opcode_list.at(head) = "NULL";
+
+    head = (head + 1) % depth;
+    load++;
+}
+
+void Window::insert(bool ready, std::string opcode, long addr)
+{
+    assert(load <= depth);
+
+    ready_list.at(head) = ready;
+    addr_list.at(head) = addr;
+    opcode_list.at(head) = opcode;
 
     head = (head + 1) % depth;
     load++;
@@ -414,7 +429,11 @@ long Window::retire()
         if (!ready_list.at(tail))
             break;
 
+#ifdef DEBUG
+        cout << "Retired: opc(" << opcode_list.at(tail) << "), addr: " << addr_list.at(tail) << endl;
+#endif
         tail = (tail + 1) % depth;
+        cout << 
         load--;
         retired++;
     }
@@ -439,14 +458,15 @@ const char* req_type_names[] = { "READ", "WRITE", "REFRESH", "POWERDOWN", "SELFR
 
 Trace::Trace(vector<const char*> trace_fnames)
 {
-  for (auto &trace_fname : trace_fnames) {
-    trace_names.push_back(trace_fname);
-    std::ifstream file(trace_fname);
-    if (!file.good()) {
-      std::cerr << "Bad trace file: " << trace_fname << std::endl;
+  std::ifstream* files_arr = new std::ifstream[trace_fnames.size()]();
+  for (int idx = 0; idx < trace_fnames.size(); idx++) {
+    trace_names.push_back(trace_fnames[idx]);
+    files_arr[idx].open(trace_fnames[idx]);
+    if (!files_arr[idx].good()) {
+      std::cerr << "Bad trace file: " << trace_fnames[idx] << std::endl;
       exit(1);
     }
-    files.push_back(&file);
+    files.push_back(files_arr + idx);
   }
 }
 
@@ -455,7 +475,11 @@ bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_add
   string line;
   for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
     int trace_idx = (last_trace + trace_offset) % files.size();
-    getline(*files[trace_idx], line);
+    try {
+      getline(*files[trace_idx], line);
+    } catch (const std::runtime_error &ex) {
+      std::cout << ex.what() << std::endl;
+    }
     if (files[trace_idx]->eof()) {
       files[trace_idx]->close();
       files.erase (files.begin()+trace_idx);
@@ -494,7 +518,11 @@ bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Ty
     string line;
     for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
       int trace_idx = (last_trace + trace_offset) % files.size();
-      getline(*files[trace_idx], line);
+      try {
+        getline(*files[trace_idx], line);
+      } catch (const std::runtime_error &ex) {
+        std::cout << ex.what() << std::endl;
+      }
       if (files[trace_idx]->eof()) {
         files[trace_idx]->clear();
         files[trace_idx]->seekg(0, files[trace_idx]->beg);
@@ -505,7 +533,11 @@ bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Ty
           continue;
         }
         else { // starting over the input trace file
-          getline(*files[trace_idx], line);
+          try {
+            getline(*files[trace_idx], line);
+          } catch (const std::runtime_error &ex) {
+            std::cout << ex.what() << std::endl;
+          }
         }
       }
       size_t pos, end;
@@ -534,7 +566,11 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
   string line;
   for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
     int trace_idx = (last_trace + trace_offset) % files.size();
-    getline(*files[trace_idx], line);
+    try {
+      getline(*files[trace_idx], line);
+    } catch (const std::runtime_error &ex) {
+      std::cout << ex.what() << std::endl;
+    }
     if (files[trace_idx]->eof()) {
       files[trace_idx]->clear();
       files[trace_idx]->seekg(0, files[trace_idx]->beg);
@@ -545,7 +581,11 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
         continue;
       }
       else { // starting over the input trace file
-        getline(*files[trace_idx], line);
+        try {
+          getline(*files[trace_idx], line);
+        } catch (const std::runtime_error &ex) {
+          std::cout << ex.what() << std::endl;
+        }
       }
     }
     size_t pos, end;
@@ -570,7 +610,11 @@ bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)
   string line;
   for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
     int trace_idx = (last_trace + trace_offset) % files.size();
-    getline(*files[trace_idx], line);
+    try {
+      getline(*(files[trace_idx]), line);
+    } catch (const std::runtime_error &ex) {
+      std::cout << ex.what() << std::endl;
+    }
     if (files[trace_idx]->eof()) {
       files[trace_idx]->close();
       files.erase (files.begin()+trace_idx);

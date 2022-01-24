@@ -42,10 +42,11 @@ public:
     int ipc = 4;
     int depth = 128;
 
-    Window() : ready_list(depth), addr_list(depth, -1) {}
+    Window() : ready_list(depth), addr_list(depth, -1), opcode_list(depth, "NULL") {}
     bool is_full();
     bool is_empty();
     void insert(bool ready, long addr);
+    void insert(bool ready, std::string opcode, long addr);
     long retire();
     void set_ready(long addr, int mask);
 
@@ -55,6 +56,7 @@ private:
     int tail = 0;
     std::vector<bool> ready_list;
     std::vector<long> addr_list;
+    std::vector<std::string> opcode_list;
 };
 
 
