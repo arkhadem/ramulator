@@ -8,7 +8,7 @@
 #include <iostream>
 #include <cassert>
 
-// #define DEBUG
+#define DEBUG
 
 namespace ramulator
 {

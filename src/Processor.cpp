@@ -257,7 +257,7 @@ void Core::tick()
     // bubbles (non-memory operations)
     int inserted = 0;
     if (gpic_mode) {
-      while ((inserted < window.ipc) && (window.is_full() != false)) {
+      while ((inserted < window.ipc) && (window.is_full() == false)) {
         more_reqs = trace.get_gpic_request(req_opcode, req_en, req_addr);
 
         if (!more_reqs) {
@@ -470,7 +470,7 @@ Trace::Trace(vector<const char*> trace_fnames)
   }
 }
 
-bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_addr)
+bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_addr, Request::Type& req_type)
 {
   string line;
   for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
@@ -486,11 +486,16 @@ bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_add
       trace_offset--;
       continue;
     }
-
     size_t pos;
     pos = line.find(' ');
     assert(pos != string::npos);
     req_opcode = line.substr(0, pos);
+    if (req_opcode.compare("load") == 0) {
+      req_type = Request::Type::READ;
+    }
+    if (req_opcode.compare("store") == 0) {
+      req_type = Request::Type::WRITE;
+    }
     pos = line.find_first_not_of(' ', pos);
     req_en = std::stoul(line, &pos, 10);
     pos = line.find_first_not_of(' ', pos);
