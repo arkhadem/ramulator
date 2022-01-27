@@ -112,20 +112,7 @@ bool Cache::send(Request req) {
         make_pair(cachesys->clk + latency_each[int(level)] + GPIC_DELAY[req.opcode], req));
     } else {
       // it's a load or store
-      // compute how many access is needed
-      int data_type = 0;
-      if (req.opcode.find("_b") != string::npos) {
-        data_type = 8;
-      } else if (req.opcode.find("_w") != string::npos) {
-        data_type = 16;
-      } else if ((req.opcode.find("_dw") != string::npos) || (req.opcode.find("_f") != string::npos)) {
-        data_type = 32;
-      } else if ((req.opcode.find("_qw") != string::npos) || (req.opcode.find("_df") != string::npos)) {
-        data_type = 64;
-      } else {
-        assert("false" && "data type not found");
-      }
-      int access_needed = (int)(std::ceil((float)(data_type * req.en / 8) / (float)(block_size)));
+      int access_needed = (long)(std::ceil( (float)(req.addr_end - req.addr + 1) / (float)(block_size) ));
       assert(gpic_addr_to_num_mem_op.count(req.addr) == 0);
       gpic_addr_to_num_mem_op[req.addr] = access_needed;
       for (int i = 0; i < access_needed; i++) {

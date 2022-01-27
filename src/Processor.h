@@ -42,21 +42,29 @@ public:
     int ipc = 4;
     int depth = 128;
 
-    Window() : ready_list(depth), addr_list(depth, -1), opcode_list(depth, "NULL") {}
+    Window() : ready_list(depth), sent_list(depth, false), addr_list(depth, -1), req_list(depth, Request()) {}
     bool is_full();
     bool is_empty();
+    void insert(bool ready, Request& req);
     void insert(bool ready, long addr);
-    void insert(bool ready, std::string opcode, long addr);
     long retire();
     void set_ready(long addr, int mask);
+    void set_send(function<bool(Request)> send);
+    long tick();
 
 private:
+    bool find_older_stores(long a_s, long a_e, Request::Type& type, int location);
+    bool find_older_unsent(int SRAM_array, int location);
+    bool check_send(Request& req, int location);
     int load = 0;
     int head = 0;
     int tail = 0;
     std::vector<bool> ready_list;
+    std::vector<bool> sent_list;
     std::vector<long> addr_list;
-    std::vector<std::string> opcode_list;
+    std::vector<Request> req_list;
+    vector<Request> retry_list;
+    function<bool(Request)> send;
 };
 
 
@@ -104,12 +112,13 @@ public:
 private:
     Trace trace;
     Window window;
+    Request request;
 
     long bubble_cnt;
     long req_addr = -1;
     int req_en;
     std::string req_opcode;
-    Request::Type req_type;
+    Request::Type req_type = Request::Type::MAX;
     bool more_reqs = true;
     long last = 0;
 
