@@ -104,27 +104,14 @@ bool Cache::send(Request req) {
   if (req.type == Request::Type::GPIC) {
     debug("level %d req.opcode %s req.en %d req.addr %lx",
       int(level), req.opcode.c_str(), req.en, req.addr);
-
-    if ((req.opcode.find("load") == string::npos) && (req.opcode.find("load") == string::npos)) {
-      // it's not a load or store
-      // ready for hit and erase after GPIC delay
-      cachesys->hit_list.push_back(
-        make_pair(cachesys->clk + latency_each[int(level)] + GPIC_DELAY[req.opcode], req));
+    
+    if (gpic_instruction_queue.size() >= MAX_GPIC_QUEUE_SIZE) {
+      return false;
     } else {
-      // it's a load or store
-      int access_needed = (long)(std::ceil( (float)(req.addr_end - req.addr + 1) / (float)(block_size) ));
-      assert(gpic_addr_to_num_mem_op.count(req.addr) == 0);
-      gpic_addr_to_num_mem_op[req.addr] = access_needed;
-      for (int i = 0; i < access_needed; i++) {
-        // make the request and send it to itself
-        Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
-        long req_addr = req.addr + i * block_size;
-        Request mem_req(req_addr, req_type, std::bind(&Cache::callback, this, placeholders::_1), req.coreid);
-        assert(mem_addr_to_gpic_op.count(mem_req.addr) == 0);
-        mem_addr_to_gpic_op[mem_req.addr] = req;
-        send(mem_req);
-      }
+      gpic_instruction_queue.push_back(make_pair(latency_each[int(level)] + GPIC_DELAY[req.opcode], req));
+      return true;
     }
+
   }
 
   debug("level %d req.addr %lx req.type %d, index %d, tag %ld",
@@ -435,6 +422,44 @@ void Cache::tick() {
       }
     }
 
+    if (last_gpic_instruction_clk != -1) {
+
+      // There must be an instruction going on
+      assert(gpic_instruction_queue.size() != 0);
+
+      // Check if the instruction is done
+      if (cachesys->clk - last_gpic_instruction_clk >= gpic_instruction_queue.at(0).first) {
+        Request req = gpic_instruction_queue.at(0).second;
+
+        if ((req.opcode.find("load") != string::npos) || (req.opcode.find("load") != string::npos)) {
+          // If it's a load or store, make new queries and send to this cache level's queue
+          int access_needed = (long)(std::ceil( (float)(req.addr_end - req.addr + 1) / (float)(block_size) ));
+          assert(gpic_addr_to_num_mem_op.count(req.addr) == 0);
+          gpic_addr_to_num_mem_op[req.addr] = access_needed;
+          for (int i = 0; i < access_needed; i++) {
+            // make the request and send it to itself
+            Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
+            long req_addr = req.addr + i * block_size;
+            Request mem_req(req_addr, req_type, std::bind(&Cache::callback, this, placeholders::_1), req.coreid);
+            assert(mem_addr_to_gpic_op.count(mem_req.addr) == 0);
+            mem_addr_to_gpic_op[mem_req.addr] = req;
+            send(mem_req);
+          }
+        } else {
+          // Otherwise, we are ready to send the call back
+          req.callback(req);
+        }
+
+        gpic_instruction_queue.erase(gpic_instruction_queue.begin());
+        last_gpic_instruction_clk = -1;
+      }
+
+    }
+
+    if ((gpic_instruction_queue.size() != 0) && (last_gpic_instruction_clk == -1)) {
+      // A new instruction must be started
+      last_gpic_instruction_clk = cachesys->clk;
+    }
 }
 
 void CacheSystem::tick() {

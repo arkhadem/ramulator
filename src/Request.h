@@ -4,6 +4,8 @@
 #include <vector>
 #include <functional>
 #include <cstdio>
+#include <iostream> 
+#include <sstream>
 
 using namespace std;
 
@@ -35,14 +37,13 @@ public:
 
     std::string opcode;
     int en = 0;
-    int SRAM_array = -1;
 
     long arrive = -1;
     long depart = -1;
     function<void(Request&)> callback; // call back with more info
 
     Request(std::string& opcode, int en, long addr, long addr_end, function<void(Request&)> callback, int coreid = 0)
-        : is_first_command(true), addr(addr), addr_end(addr_end), coreid(coreid), type(Type::GPIC), opcode(opcode), en(en), SRAM_array(SRAM_array), callback(callback) {}
+        : is_first_command(true), addr(addr), addr_end(addr_end), coreid(coreid), type(Type::GPIC), opcode(opcode), en(en), callback(callback) {}
 
     Request(long addr, Type type, int coreid = 0)
         : is_first_command(true), addr(addr), addr_end(addr+7), coreid(coreid), type(type),
@@ -58,15 +59,17 @@ public:
         : is_first_command(true), coreid(0) {}
 
     char* c_str() {
-        char* name = new char[100];
+        std::stringstream req_stream;
+
         if (type == Type::GPIC) {
-            sprintf(name, "[type(GPIC), opcode(%s), en(%d), addr(%x)]", opcode.c_str(), en, addr);
+            req_stream << "[type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << ")";
         } else if (type == Type::READ) {
-            sprintf(name, "[type(READ), addr(%x)]", addr);
+            req_stream << "[type(READ), addr(0x" << std::hex << addr << ")";
         } else if (type == Type::WRITE) {
-            sprintf(name, "[type(WRITE), addr(%x)]", addr);
+            req_stream << "[type(WRITE), addr(0x" << std::hex << addr << ")";
         }
-        return name;
+        
+        return (char*)(req_stream.str().c_str());
     }
 };
 

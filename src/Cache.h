@@ -15,6 +15,8 @@
 #include <list>
 #include <math.h>
 
+#define MAX_GPIC_QUEUE_SIZE 32
+
 namespace ramulator
 {
 class CacheSystem;
@@ -135,6 +137,9 @@ protected:
 
   std::map<long, int> gpic_addr_to_num_mem_op;
   std::map<long, Request> mem_addr_to_gpic_op;
+  
+  std::vector<std::pair<long, Request> > gpic_instruction_queue;
+  long last_gpic_instruction_clk = -1;
 
   int calc_log2(int val) {
       int n = 0;
