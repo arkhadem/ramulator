@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <iostream> 
 #include <sstream>
+#include <cstring>
 
 using namespace std;
 
@@ -58,18 +59,22 @@ public:
     Request()
         : is_first_command(true), coreid(0) {}
 
-    char* c_str() {
+    const char* c_str() {
         std::stringstream req_stream;
-
-        if (type == Type::GPIC) {
-            req_stream << "[type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << ")";
-        } else if (type == Type::READ) {
-            req_stream << "[type(READ), addr(0x" << std::hex << addr << ")";
-        } else if (type == Type::WRITE) {
-            req_stream << "[type(WRITE), addr(0x" << std::hex << addr << ")";
-        }
+        char* name = new char[100];
         
-        return (char*)(req_stream.str().c_str());
+        if (type == Type::GPIC) {
+            req_stream << "Request[type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << ")]";
+        } else if (type == Type::READ) {
+            req_stream << "Request[type(READ), addr(0x" << std::hex << addr << ")]";
+        } else if (type == Type::WRITE) {
+            req_stream << "Request[type(WRITE), addr(0x" << std::hex << addr << ")]";
+        } else {
+            assert(false);
+        }
+
+        strcpy(name, req_stream.str().c_str());
+        return name;
     }
 };
 

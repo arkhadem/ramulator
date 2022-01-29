@@ -189,6 +189,7 @@ int main(int argc, const char *argv[])
 
     Config configs(argv[1]);
 
+
     const std::string& standard = configs["standard"];
     assert(standard != "" || "DRAM standard should be specified.");
 

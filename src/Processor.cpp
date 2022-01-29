@@ -21,10 +21,6 @@ Processor::Processor(const Config& configs,
   assert(cachesys != nullptr);
   int tracenum = trace_list.size();
   assert(tracenum > 0);
-  printf("tracenum: %d\n", tracenum);
-  for (int i = 0 ; i < tracenum ; ++i) {
-    printf("trace_list[%d]: %s\n", i, trace_list[i]);
-  }
 
   vector< vector<const char*> > trace_lists;
   for (int i = 0 ; i < configs.get_core_num() ; ++i) {
@@ -155,7 +151,7 @@ Core::Core(const Config& configs, int coreid,
     Cache* llc, std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory)
     : id(coreid), no_core_caches(!configs.has_core_caches()),
     no_shared_cache(!configs.has_l3_cache()), gpic_mode(configs.is_gpic()),
-    llc(llc), trace(trace_fnames), memory(memory)
+    llc(llc), trace(trace_fnames), window(this), memory(memory)
 {
   // set expected limit instruction for calculating weighted speedup
   expected_limit_insts = configs.get_expected_limit_insts();
@@ -191,15 +187,15 @@ Core::Core(const Config& configs, int coreid,
         break;
       case 3:
         send = send_next;
+        break;
       default:
+        assert(false && "gpic cache level must be 1, 2, or 3");
         break;
       }
     } else {
       send = bind(&Cache::send, caches[1].get(), placeholders::_1);
     }
   }
-
-  window.set_send(send);
 
   if (gpic_mode) {
     // DO NOTHING
@@ -482,7 +478,7 @@ bool Window::check_send(Request& req, int location) {
           return false;
         } else {
           // Send it
-          if(!send(req)){
+          if(!core->send(req)){
             retry_list.push_back(req);
           }
           return true;
@@ -490,7 +486,7 @@ bool Window::check_send(Request& req, int location) {
       } else {
         // GPIC COMPUTATIONAL
         // Send it
-        if(!send(req)){
+        if(!core->send(req)){
           retry_list.push_back(req);
         }
         return true;
@@ -515,7 +511,7 @@ bool Window::check_send(Request& req, int location) {
       }
     } else {
       // Send it
-      if(!send(req)){
+      if(!core->send(req)){
         retry_list.push_back(req);
       }
       return true;
@@ -558,7 +554,7 @@ long Window::tick()
     assert(load <= depth);
 
     while (retry_list.size()) {
-      if(send(retry_list.at(0))){
+      if(core->send(retry_list.at(0))){
         retry_list.erase(retry_list.begin());
       } else {
         break;
@@ -573,7 +569,7 @@ long Window::tick()
       if (!sent_list.at(tail)) {
         // Send it
         Request req = req_list.at(tail);
-        if(!send(req)){
+        if (!core->send(req)) {
           retry_list.push_back(req);
         }
       }
@@ -631,10 +627,6 @@ void Window::set_ready(long addr, int mask)
     }
 }
 
-void Window::set_send(function<bool(Request)> send) {
-  send = send;
-}
-
 const char* req_type_names[] = { "READ", "WRITE", "REFRESH", "POWERDOWN", "SELFREFRESH", "EXTENSION", "MAX" };
 
 Trace::Trace(vector<const char*> trace_fnames)
@@ -667,11 +659,10 @@ bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_add
       trace_offset--;
       continue;
     }
-    size_t pos, end;
+    size_t pos;
     pos = line.find(' ');
     assert(pos != string::npos);
     req_opcode = line.substr(0, pos);
-    std::cout << req_opcode << endl;
     pos = line.find_first_not_of(' ', pos);
     line = line.substr(pos);
     if (req_opcode.compare("load") == 0) {
@@ -698,7 +689,10 @@ bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_add
     
 
 #ifdef DEBUG
-    printf("get_gpic_request returned opcode: %s, enable: %d, address: %ld\n", req_opcode.c_str(), req_en, req_addr);
+    if (req_en != -1)
+      printf("get_gpic_request returned opcode: %s, enable: %d, address: 0x%lx\n", req_opcode.c_str(), req_en, req_addr);
+    else
+      printf("get_gpic_request returned opcode: %s, address: 0x%lx\n", req_opcode.c_str(), req_addr);
 #endif
     last_trace++;
     return true;

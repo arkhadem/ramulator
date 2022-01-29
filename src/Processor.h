@@ -16,6 +16,8 @@
 namespace ramulator 
 {
 
+class Core;
+
 class Trace {
 public:
     Trace(vector<const char*> trace_fname);
@@ -42,14 +44,13 @@ public:
     int ipc = 4;
     int depth = 128;
 
-    Window() : ready_list(depth), sent_list(depth, false), addr_list(depth, -1), req_list(depth, Request()) {}
+    Window(Core* core) : ready_list(depth), sent_list(depth, false), addr_list(depth, -1), req_list(depth, Request()), core(core) {}
     bool is_full();
     bool is_empty();
     void insert(bool ready, Request& req);
     void insert(bool ready, long addr);
     long retire();
     void set_ready(long addr, int mask);
-    void set_send(function<bool(Request)> send);
     long tick();
 
 private:
@@ -64,7 +65,7 @@ private:
     std::vector<long> addr_list;
     std::vector<Request> req_list;
     vector<Request> retry_list;
-    function<bool(Request)> send;
+    Core* core;
 };
 
 

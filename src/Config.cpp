@@ -60,6 +60,7 @@ void Config::parse(const string& fname)
           warmup_insts = atoi(tokens[1].c_str());
         } else if (tokens[0] == "gpic_level") {
           gpic_level = atoi(tokens[1].c_str());
+          std::cout << "GPIC LEVEL: " << gpic_level << endl;
         }
     }
     file.close();
