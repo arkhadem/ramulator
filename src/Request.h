@@ -4,7 +4,7 @@
 #include <vector>
 #include <functional>
 #include <cstdio>
-#include <iostream> 
+#include <iostream>
 #include <sstream>
 #include <cstring>
 
@@ -13,72 +13,80 @@ using namespace std;
 namespace ramulator
 {
 
-class Request
-{
-public:
-    bool is_first_command;
-    long addr;
-    long addr_end;
-    // long addr_row;
-    vector<int> addr_vec;
-    // specify which core this request sent from, for virtual address translation
-    int coreid;
-
-    enum class Type
+    class Request
     {
-        READ,
-        WRITE,
-        REFRESH,
-        POWERDOWN,
-        SELFREFRESH,
-        EXTENSION,
-        GPIC,
-        MAX
-    } type;
+    public:
+        bool is_first_command;
+        long addr;
+        long addr_end;
+        // long addr_row;
+        vector<int> addr_vec;
+        // specify which core this request sent from, for virtual address translation
+        int coreid;
 
-    std::string opcode;
-    int en = 0;
+        enum class Type
+        {
+            READ,
+            WRITE,
+            REFRESH,
+            POWERDOWN,
+            SELFREFRESH,
+            EXTENSION,
+            GPIC,
+            INITIALIZED,
+            MAX
+        } type;
 
-    long arrive = -1;
-    long depart = -1;
-    function<void(Request&)> callback; // call back with more info
+        std::string opcode;
+        int en = 0;
 
-    Request(std::string& opcode, int en, long addr, long addr_end, function<void(Request&)> callback, int coreid = 0)
-        : is_first_command(true), addr(addr), addr_end(addr_end), coreid(coreid), type(Type::GPIC), opcode(opcode), en(en), callback(callback) {}
+        long arrive = -1;
+        long depart = -1;
+        function<void(Request &)> callback; // call back with more info
 
-    Request(long addr, Type type, int coreid = 0)
-        : is_first_command(true), addr(addr), addr_end(addr+7), coreid(coreid), type(type),
-      callback([](Request& req){}) {}
+        Request(std::string &opcode, int en, long addr, long addr_end, function<void(Request &)> callback, int coreid = 0)
+            : is_first_command(true), addr(addr), addr_end(addr_end), coreid(coreid), type(Type::GPIC), opcode(opcode), en(en), callback(callback) {}
 
-    Request(long addr, Type type, function<void(Request&)> callback, int coreid = 0)
-        : is_first_command(true), addr(addr), addr_end(addr+7), coreid(coreid), type(type), callback(callback) {}
+        Request(long addr, Type type, int coreid = 0)
+            : is_first_command(true), addr(addr), addr_end(addr + 7), coreid(coreid), type(type),
+              callback([](Request &req) {}) {}
 
-    Request(vector<int>& addr_vec, Type type, function<void(Request&)> callback, int coreid = 0)
-        : is_first_command(true), addr_vec(addr_vec), coreid(coreid), type(type), callback(callback) {}
+        Request(long addr, Type type, function<void(Request &)> callback, int coreid = 0)
+            : is_first_command(true), addr(addr), addr_end(addr + 7), coreid(coreid), type(type), callback(callback) {}
 
-    Request()
-        : is_first_command(true), coreid(0) {}
+        Request(vector<int> &addr_vec, Type type, function<void(Request &)> callback, int coreid = 0)
+            : is_first_command(true), addr_vec(addr_vec), coreid(coreid), type(type), callback(callback) {}
 
-    const char* c_str() {
-        std::stringstream req_stream;
-        char* name = new char[100];
-        
-        if (type == Type::GPIC) {
-            req_stream << "Request[type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << ")]";
-        } else if (type == Type::READ) {
-            req_stream << "Request[type(READ), addr(0x" << std::hex << addr << ")]";
-        } else if (type == Type::WRITE) {
-            req_stream << "Request[type(WRITE), addr(0x" << std::hex << addr << ")]";
-        } else {
-            assert(false);
+        Request()
+            : is_first_command(true), coreid(0) {}
+
+        const char *c_str()
+        {
+            std::stringstream req_stream;
+            char *name = new char[100];
+
+            if (type == Type::GPIC)
+            {
+                req_stream << "Request[type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << ")]";
+            }
+            else if (type == Type::READ)
+            {
+                req_stream << "Request[type(READ), addr(0x" << std::hex << addr << ")]";
+            }
+            else if (type == Type::WRITE)
+            {
+                req_stream << "Request[type(WRITE), addr(0x" << std::hex << addr << ")]";
+            }
+            else
+            {
+                assert(false);
+            }
+
+            strcpy(name, req_stream.str().c_str());
+            return name;
         }
-
-        strcpy(name, req_stream.str().c_str());
-        return name;
-    }
-};
+    };
 
 } /*namespace ramulator*/
 
 #endif /*__REQUEST_H*/
-

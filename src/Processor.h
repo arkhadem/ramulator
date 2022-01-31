@@ -6,15 +6,14 @@
 #include "Memory.h"
 #include "Request.h"
 #include "Statistics.h"
-#include <iostream>
-#include <vector>
-#include <fstream>
-#include <string>
 #include <ctype.h>
+#include <fstream>
 #include <functional>
+#include <iostream>
+#include <string>
+#include <vector>
 
-namespace ramulator 
-{
+namespace ramulator {
 
 class Core;
 
@@ -35,16 +34,23 @@ public:
 private:
     int last_trace;
     vector<std::ifstream*> files;
+    vector<bool> warmed_ups;
     vector<std::string> trace_names;
 };
-
 
 class Window {
 public:
     int ipc = 4;
     int depth = 128;
 
-    Window(Core* core) : ready_list(depth), sent_list(depth, false), addr_list(depth, -1), req_list(depth, Request()), core(core) {}
+    Window(Core* core)
+        : ready_list(depth)
+        , sent_list(depth, false)
+        , addr_list(depth, -1)
+        , req_list(depth, Request())
+        , core(core)
+    {
+    }
     bool is_full();
     bool is_empty();
     void insert(bool ready, Request& req);
@@ -68,7 +74,6 @@ private:
     Core* core;
 };
 
-
 class Core {
 public:
     long clk = 0;
@@ -77,7 +82,7 @@ public:
     function<bool(Request)> send;
 
     Core(const Config& configs, int coreid,
-        const std::vector<const char *>& trace_fnames,
+        const std::vector<const char*>& trace_fnames,
         function<bool(Request)> send_next, Cache* llc,
         std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory);
     void tick();
@@ -87,6 +92,7 @@ public:
     bool finished();
     bool has_reached_limit();
     long get_insts(); // the number of the instructions issued to the core
+    bool is_warmed_up();
     function<void(Request&)> callback;
 
     bool no_core_caches = true;
@@ -128,6 +134,8 @@ private:
     ScalarStat memory_access_cycles;
     ScalarStat cpu_inst;
     MemoryBase& memory;
+
+    bool warmed_up = false;
 };
 
 class Processor {
