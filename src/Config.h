@@ -9,7 +9,7 @@
 #include <vector>
 #define MAX_CORE_ID 16
 
-#define DEBUG
+// #define DEBUG
 
 #ifndef DEBUG
 #define hint(...)

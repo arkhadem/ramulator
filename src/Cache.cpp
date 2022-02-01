@@ -95,6 +95,15 @@ Cache::Cache(int size, int assoc, int block_size,
     cache_set_unavailable.name(level_string + string("_cache_set_unavailable"))
         .desc("cache set not available")
         .precision(0);
+    GPIC_host_device_cycles.name(level_string + string("_GPIC_host_device_cycles"))
+        .desc("cache GPIC instruction queue is empty")
+        .precision(0);
+    GPIC_compute_cycles.name(level_string + string("_GPIC_compute_cycles"))
+        .desc("cache GPIC doing computation or W/R")
+        .precision(0);
+    GPIC_memory_cycles.name(level_string + string("_GPIC_memory_cycles"))
+        .desc("cache GPIC waiting for mem requests")
+        .precision(0);
 }
 
 bool Cache::send(Request req)
@@ -105,8 +114,8 @@ bool Cache::send(Request req)
         if (gpic_instruction_queue.size() >= MAX_GPIC_QUEUE_SIZE) {
             return false;
         } else {
-            hint("%s set for %ld clock cycles (%ld)\n", req.c_str(), latency_each[int(level)] + GPIC_DELAY[req.opcode], last_gpic_instruction_clk);
-            gpic_instruction_queue.push_back(make_pair(latency_each[int(level)] + GPIC_DELAY[req.opcode], req));
+            hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
+            gpic_instruction_queue.push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
             return true;
         }
     }
@@ -397,17 +406,17 @@ void Cache::callback(Request& req)
     }
 
     // Remove corresponding GPIC instructions
-    if ((last_gpic_instruction_started == true) && (last_gpic_instruction_sent == true)) {
-        Request GPIC_req = gpic_instruction_queue[0].second;
-        if ((align(req.addr) >= align(GPIC_req.addr)) && (align(req.addr) <= align(GPIC_req.addr_end))) {
-            hint("%s: %s calls back for %s, %d instructions remained\n", level_string.c_str(), req.c_str(), GPIC_req.c_str(), gpic_op_to_num_mem_op[GPIC_req] - 1);
-            if ((--gpic_op_to_num_mem_op[GPIC_req]) == 0) {
-                hint("%s: calling back %s\n", level_string.c_str(), GPIC_req.c_str());
-                GPIC_req.callback(GPIC_req);
-                gpic_op_to_num_mem_op.erase(GPIC_req);
-                gpic_instruction_queue.erase(gpic_instruction_queue.begin());
-                last_gpic_instruction_clk = -1;
-                last_gpic_instruction_started = false;
+    if ((last_gpic_instruction_computed == true) && (last_gpic_instruction_sent == true)) {
+        Request gpic_req = gpic_compute_queue[0].second;
+        if ((align(req.addr) >= align(gpic_req.addr)) && (align(req.addr) <= align(gpic_req.addr_end))) {
+            hint("%s: %s calls back for %s, %d instructions remained\n", level_string.c_str(), req.c_str(), gpic_req.c_str(), gpic_op_to_num_mem_op[gpic_req] - 1);
+            if ((--gpic_op_to_num_mem_op[gpic_req]) == 0) {
+                hint("%s: calling back %s\n", level_string.c_str(), gpic_req.c_str());
+                gpic_req.callback(gpic_req);
+                gpic_op_to_num_mem_op.erase(gpic_req);
+                gpic_compute_queue.erase(gpic_compute_queue.begin());
+                last_gpic_instruction_compute_clk = -1;
+                last_gpic_instruction_computed = false;
                 last_gpic_instruction_sent = false;
             }
         }
@@ -439,14 +448,36 @@ void Cache::tick()
         }
     }
 
-    if ((last_gpic_instruction_started == true) && (last_gpic_instruction_sent == false)) {
+    // Check if there is any instruction ready to be started
+    while ((gpic_instruction_queue.size() > 0) && (cachesys->clk >= gpic_instruction_queue[0].first)) {
+        Request req = gpic_instruction_queue[0].second;
+        hint("%s set for compute in %ld clock cycles\n", req.c_str(), GPIC_DELAY[req.opcode]);
+        gpic_instruction_queue.erase(gpic_instruction_queue.begin());
+        gpic_compute_queue.push_back(make_pair(GPIC_DELAY[req.opcode], req));
+    }
+
+    // Check if there is any instructions ready to be computed
+    if (last_gpic_instruction_computed == false) {
+
+        // The last instruction must not be sent
+        assert(last_gpic_instruction_sent == false);
+
+        if (gpic_compute_queue.size() != 0) {
+            // A new instruction must be computed
+            hint("Computing %s at %ld, %zu instructions in compute queue\n", gpic_compute_queue.at(0).second.c_str(), cachesys->clk, gpic_compute_queue.size());
+            last_gpic_instruction_compute_clk = cachesys->clk;
+            last_gpic_instruction_computed = true;
+        }
+    }
+
+    if ((last_gpic_instruction_computed == true) && (last_gpic_instruction_sent == false)) {
 
         // There must be an instruction going on
-        assert(gpic_instruction_queue.size() != 0);
+        assert(gpic_compute_queue.size() != 0);
 
         // Check if the instruction is done
-        if (cachesys->clk - last_gpic_instruction_clk >= gpic_instruction_queue.at(0).first) {
-            Request req = gpic_instruction_queue.at(0).second;
+        if (cachesys->clk - last_gpic_instruction_compute_clk >= gpic_compute_queue.at(0).first) {
+            Request req = gpic_compute_queue.at(0).second;
 
             if ((req.opcode.find("load") != string::npos) || (req.opcode.find("store") != string::npos)) {
                 // If it's a load or store, make new queries and send to this cache level's queue
@@ -473,25 +504,27 @@ void Cache::tick()
             } else {
                 // Otherwise, we are ready to send the call back
                 req.callback(req);
-                gpic_instruction_queue.erase(gpic_instruction_queue.begin());
-                last_gpic_instruction_clk = -1;
-                last_gpic_instruction_started = false;
+                gpic_compute_queue.erase(gpic_compute_queue.begin());
+                last_gpic_instruction_compute_clk = -1;
+                last_gpic_instruction_computed = false;
                 last_gpic_instruction_sent = false;
             }
         }
     }
 
-    if (last_gpic_instruction_started == false) {
+    if ((last_gpic_instruction_computed == false) && (last_gpic_instruction_sent == false)) {
+        // There is no instruction ready for execute
+        GPIC_host_device_cycles++;
+    }
 
-        // The last instruction must not be sent
-        assert(last_gpic_instruction_sent == false);
+    if ((last_gpic_instruction_computed == true) && (last_gpic_instruction_sent == false)) {
+        // An instruction is being computed
+        GPIC_compute_cycles++;
+    }
 
-        if (gpic_instruction_queue.size() != 0) {
-            // A new instruction must be started
-            hint("Starting %s at %ld, %zu instructions in queue\n", gpic_instruction_queue.at(0).second.c_str(), cachesys->clk, gpic_instruction_queue.size());
-            last_gpic_instruction_clk = cachesys->clk;
-            last_gpic_instruction_started = true;
-        }
+    if ((last_gpic_instruction_computed == true) && (last_gpic_instruction_sent == true)) {
+        // An instruction is computed and sent, waiting for memory instructions to be called back
+        GPIC_memory_cycles++;
     }
 }
 
@@ -512,14 +545,17 @@ void Cache::reset_state()
     cache_mshr_hit = 0;
     cache_mshr_unavailable = 0;
     cache_set_unavailable = 0;
+    GPIC_host_device_cycles = 0;
+    GPIC_compute_cycles = 0;
+    GPIC_memory_cycles = 0;
     last_id = 0;
-    last_gpic_instruction_clk = -1;
-    last_gpic_instruction_started = false;
+    last_gpic_instruction_computed = false;
     last_gpic_instruction_sent = false;
     assert(mshr_entries.size() == 0);
     assert(retry_list.size() == 0);
     assert(gpic_op_to_num_mem_op.size() == 0);
     assert(gpic_instruction_queue.size() == 0);
+    assert(gpic_compute_queue.size() == 0);
 }
 
 void CacheSystem::tick()

@@ -15,7 +15,7 @@
 #include <queue>
 
 #define MAX_GPIC_QUEUE_SIZE 32
-#define DEBUG_CACHE
+// #define DEBUG_CACHE
 
 namespace ramulator {
 class CacheSystem;
@@ -48,6 +48,9 @@ protected:
     ScalarStat cache_mshr_hit;
     ScalarStat cache_mshr_unavailable;
     ScalarStat cache_set_unavailable;
+    ScalarStat GPIC_host_device_cycles;
+    ScalarStat GPIC_compute_cycles;
+    ScalarStat GPIC_memory_cycles;
 
 public:
     enum class Level {
@@ -168,8 +171,9 @@ protected:
     std::map<Request, int> gpic_op_to_num_mem_op;
 
     std::vector<std::pair<long, Request>> gpic_instruction_queue;
-    long last_gpic_instruction_clk = -1;
-    bool last_gpic_instruction_started = false;
+    std::vector<std::pair<long, Request>> gpic_compute_queue;
+    long last_gpic_instruction_compute_clk = -1;
+    bool last_gpic_instruction_computed = false;
     bool last_gpic_instruction_sent = false;
 
     int calc_log2(int val)
