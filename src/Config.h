@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#define MAX_CORE_ID 16
 
 #define DEBUG
 

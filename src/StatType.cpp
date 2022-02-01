@@ -9,13 +9,13 @@ StatList statlist;
 Tick curTick = 0;
 
 std::vector<StatBase*> all_stats;
-void reset_stats() {
-    for(auto s : all_stats)
+void reset_stats()
+{
+    for (auto s : all_stats)
         s->reset();
 }
 
-void
-Histogram::grow_out()
+void Histogram::grow_out()
 {
     int size = cvec.size();
     int zero = size / 2; // round down!
@@ -53,8 +53,7 @@ Histogram::grow_out()
     bucket_size *= 2;
 }
 
-void
-Histogram::grow_convert()
+void Histogram::grow_convert()
 {
     int size = cvec.size();
     int half = (size + 1) / 2; // round up!
@@ -71,12 +70,11 @@ Histogram::grow_convert()
     for (int i = half - 1; i >= 0; i--)
         cvec[i] = Counter();
 
-    min_bucket = -max_bucket;// - (even ? bucket_size : 0);
+    min_bucket = -max_bucket; // - (even ? bucket_size : 0);
     bucket_size *= 2;
 }
 
-void
-Histogram::grow_up()
+void Histogram::grow_up()
 {
     int size = cvec.size();
     int half = (size + 1) / 2; // round up!
@@ -97,8 +95,7 @@ Histogram::grow_up()
     bucket_size *= 2;
 }
 
-void
-Histogram::add(Histogram &hs)
+void Histogram::add(Histogram& hs)
 {
     size_type b_size = hs.size();
     assert(size() == b_size);
@@ -109,17 +106,16 @@ Histogram::add(Histogram &hs)
     squares += hs.squares;
     samples += hs.samples;
 
-    while(bucket_size > hs.bucket_size)
+    while (bucket_size > hs.bucket_size)
         hs.grow_up();
-    while(bucket_size < hs.bucket_size)
+    while (bucket_size < hs.bucket_size)
         grow_up();
 
     for (uint32_t i = 0; i < b_size; i++)
         cvec[i] += hs.cvec[i];
 }
 
-void
-Histogram::sample(Counter val, int number)
+void Histogram::sample(Counter val, int number)
 {
     assert(min_bucket < max_bucket);
     if (val < min_bucket) {
@@ -138,8 +134,7 @@ Histogram::sample(Counter val, int number)
         }
     }
 
-    size_type index =
-        (int64_t)std::floor((val - min_bucket) / bucket_size);
+    size_type index = (int64_t)std::floor((val - min_bucket) / bucket_size);
 
     assert(index >= 0 && index < size());
     cvec[index] += number;

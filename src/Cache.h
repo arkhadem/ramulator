@@ -5,325 +5,326 @@
 #include "Request.h"
 #include "Statistics.h"
 #include <algorithm>
-#include <cstdio>
 #include <cassert>
+#include <cstdio>
 #include <functional>
 #include <list>
 #include <map>
+#include <math.h>
 #include <memory>
 #include <queue>
-#include <list>
-#include <math.h>
 
 #define MAX_GPIC_QUEUE_SIZE 32
 #define DEBUG_CACHE
 
-namespace ramulator
-{
-	class CacheSystem;
+namespace ramulator {
+class CacheSystem;
 
-	class Cache
-	{
-	protected:
-		ScalarStat cache_read_miss;
-		ScalarStat cache_write_miss;
-		ScalarStat cache_total_miss;
-		ScalarStat cache_eviction;
-		ScalarStat cache_read_access;
-		ScalarStat cache_write_access;
-		ScalarStat cache_total_access;
-		ScalarStat cache_mshr_hit;
-		ScalarStat cache_mshr_unavailable;
-		ScalarStat cache_set_unavailable;
+// These variables are set in Main.cpp
+extern int l1_size;
+extern int l1_assoc;
+extern int l1_blocksz;
+extern int l1_mshr_num;
 
-	public:
-		enum class Level
-		{
-			L1,
-			L2,
-			L3,
-			MAX
-		} level;
-		std::string level_string;
+extern int l2_size;
+extern int l2_assoc;
+extern int l2_blocksz;
+extern int l2_mshr_num;
 
-		struct Line
-		{
-			long addr;
-			long tag;
-			bool lock; // When the lock is on, the value is not valid yet.
-			bool dirty;
-			Line(long addr, long tag) : addr(addr), tag(tag), lock(true), dirty(false) {}
-			Line(long addr, long tag, bool lock, bool dirty) : addr(addr), tag(tag), lock(lock), dirty(dirty) {}
-		};
+extern int l3_size;
+extern int l3_assoc;
+extern int l3_blocksz;
+extern int mshr_per_bank;
 
-		Cache(int size, int assoc, int block_size, int mshr_entry_num,
-			  Level level, std::shared_ptr<CacheSystem> cachesys);
+class Cache {
+protected:
+    ScalarStat cache_read_miss;
+    ScalarStat cache_write_miss;
+    ScalarStat cache_total_miss;
+    ScalarStat cache_eviction;
+    ScalarStat cache_read_access;
+    ScalarStat cache_write_access;
+    ScalarStat cache_total_access;
+    ScalarStat cache_mshr_hit;
+    ScalarStat cache_mshr_unavailable;
+    ScalarStat cache_set_unavailable;
 
-		void tick();
+public:
+    enum class Level {
+        CORE,
+        L1,
+        L2,
+        L3,
+        MAX
+    } level;
+    std::string level_string;
 
-		// L1, L2, L3 accumulated latencies
-		// int latency[int(Level::MAX)] = {4, 4 + 12, 4 + 12 + 31};
-		int latency_each[int(Level::MAX)] = {4, 12, 31};
+    struct Line {
+        long addr;
+        long tag;
+        bool lock; // When the lock is on, the value is not valid yet.
+        bool dirty;
+        Line(long addr, long tag)
+            : addr(addr)
+            , tag(tag)
+            , lock(true)
+            , dirty(false)
+        {
+        }
+        Line(long addr, long tag, bool lock, bool dirty)
+            : addr(addr)
+            , tag(tag)
+            , lock(lock)
+            , dirty(dirty)
+        {
+        }
+    };
 
-		std::shared_ptr<CacheSystem> cachesys;
-		// LLC has multiple higher caches
-		std::vector<Cache *> higher_cache;
-		Cache *lower_cache;
+    Cache(int size, int assoc, int block_size, int mshr_entry_num,
+        Level level, std::shared_ptr<CacheSystem> cachesys, int core_id = -1);
 
-		bool send(Request req);
+    void tick();
+    void reset_state();
 
-		void concatlower(Cache *lower);
+    // L1, L2, L3 accumulated latencies
+    int latency_each[int(Level::MAX)] = { 0, 4, 12, 31 };
 
-		void callback(Request &req);
+    std::shared_ptr<CacheSystem> cachesys;
+    // LLC has multiple higher caches
+    std::vector<Cache*> higher_cache;
+    Cache* lower_cache;
 
-	protected:
-		bool is_first_level;
-		bool is_last_level;
-		size_t size;
-		unsigned int assoc;
-		unsigned int block_num;
-		unsigned int index_mask;
-		unsigned int block_size;
-		unsigned int index_offset;
-		unsigned int tag_offset;
-		unsigned int mshr_entry_num;
-		std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
-		std::list<std::pair<long, Request>> retry_list;
+    bool send(Request req);
 
-		std::map<int, std::list<Line>> cache_lines;
+    void concatlower(Cache* lower);
 
-		std::map<std::string, int> GPIC_DELAY = {
-			{"_pc_load_b", 8},
-			{"_pc_load_w", 16},
-			{"_pc_load_dw", 32},
-			{"_pc_load_qw", 64},
-			{"_pc_load_f", 32},
-			{"_pc_load_df", 64},
-			{"_pc_load1_b", 8},
-			{"_pc_load1_w", 16},
-			{"_pc_load1_dw", 32},
-			{"_pc_load1_qw", 64},
-			{"_pc_load1_f", 32},
-			{"_pc_load1_df", 64},
-			{"_pc_store_b", 8},
-			{"_pc_store_w", 16},
-			{"_pc_store_dw", 32},
-			{"_pc_store_qw", 64},
-			{"_pc_store_f", 32},
-			{"_pc_store_df", 64},
-			{"_pc_add_b", 8},
-			{"_pc_add_w", 16},
-			{"_pc_add_dw", 32},
-			{"_pc_add_qw", 64},
-			{"_pc_add_f", 223},
-			{"_pc_add_df", 902},
-			{"_pc_mull_b", 42},
-			{"_pc_mull_w", 152},
-			{"_pc_mull_dw", 560},
-			{"_pc_mull_qw", 2144},
-			{"_pc_mul_f", 346},
-			{"_pc_mul_df", 1463},
-			{"_pc_min_b", 32},
-			{"_pc_min_w", 64},
-			{"_pc_min_dw", 128},
-			{"_pc_min_qw", 256},
-			{"_pc_min_f", 128},
-			{"_pc_min_df", 256},
-			{"_pc_max_b", 32},
-			{"_pc_max_w", 64},
-			{"_pc_max_dw", 128},
-			{"_pc_max_qw", 256},
-			{"_pc_max_f", 128},
-			{"_pc_max_df", 256},
-		};
+    void callback(Request& req);
 
-		std::map<long, int> gpic_addr_to_num_mem_op;
-		std::map<long, Request> mem_addr_to_gpic_op;
+protected:
+    int core_id;
+    bool is_first_level;
+    bool is_last_level;
+    size_t size;
+    unsigned int assoc;
+    unsigned int block_num;
+    unsigned int index_mask;
+    unsigned int block_size;
+    unsigned int index_offset;
+    unsigned int tag_offset;
+    unsigned int mshr_entry_num;
+    long last_id = 0;
+    std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
+    std::list<std::pair<long, Request>> retry_list;
 
-		std::vector<std::pair<long, Request>> gpic_instruction_queue;
-		long last_gpic_instruction_clk = -1;
+    std::map<int, std::list<Line>> cache_lines;
 
-		int calc_log2(int val)
-		{
-			int n = 0;
-			while ((val >>= 1))
-				n++;
-			return n;
-		}
+    std::map<std::string, long> GPIC_DELAY = {
+        { "_pc_load_b", 8 },
+        { "_pc_load_w", 16 },
+        { "_pc_load_dw", 32 },
+        { "_pc_load_qw", 64 },
+        { "_pc_load_f", 32 },
+        { "_pc_load_df", 64 },
+        { "_pc_load1_b", 8 },
+        { "_pc_load1_w", 16 },
+        { "_pc_load1_dw", 32 },
+        { "_pc_load1_qw", 64 },
+        { "_pc_load1_f", 32 },
+        { "_pc_load1_df", 64 },
+        { "_pc_store_b", 8 },
+        { "_pc_store_w", 16 },
+        { "_pc_store_dw", 32 },
+        { "_pc_store_qw", 64 },
+        { "_pc_store_f", 32 },
+        { "_pc_store_df", 64 },
+        { "_pc_add_b", 8 },
+        { "_pc_add_w", 16 },
+        { "_pc_add_dw", 32 },
+        { "_pc_add_qw", 64 },
+        { "_pc_add_f", 223 },
+        { "_pc_add_df", 902 },
+        { "_pc_mull_b", 42 },
+        { "_pc_mull_w", 152 },
+        { "_pc_mull_dw", 560 },
+        { "_pc_mull_qw", 2144 },
+        { "_pc_mul_f", 346 },
+        { "_pc_mul_df", 1463 },
+        { "_pc_min_b", 32 },
+        { "_pc_min_w", 64 },
+        { "_pc_min_dw", 128 },
+        { "_pc_min_qw", 256 },
+        { "_pc_min_f", 128 },
+        { "_pc_min_df", 256 },
+        { "_pc_max_b", 32 },
+        { "_pc_max_w", 64 },
+        { "_pc_max_dw", 128 },
+        { "_pc_max_qw", 256 },
+        { "_pc_max_f", 128 },
+        { "_pc_max_df", 256 },
+    };
 
-		int get_index(long addr)
-		{
-			return (addr >> index_offset) & index_mask;
-		};
+    std::map<Request, int> gpic_op_to_num_mem_op;
+    std::map<Request, int> gpic_op_to_send;
 
-		long get_tag(long addr)
-		{
-			return (addr >> tag_offset);
-		}
+    std::vector<std::pair<long, Request>> gpic_instruction_queue;
+    long last_gpic_instruction_clk = -1;
 
-		// Align the address to cache line size
-		long align(long addr)
-		{
-			return (addr & ~(block_size - 1l));
-		}
+    int calc_log2(int val)
+    {
+        int n = 0;
+        while ((val >>= 1))
+            n++;
+        return n;
+    }
 
-		// Evict the cache line from higher level to this level.
-		// Pass the dirty bit and update LRU queue.
-		void evictline(long addr, bool dirty);
+    int get_index(long addr)
+    {
+        return (addr >> index_offset) & index_mask;
+    };
 
-		// Invalidate the line from this level to higher levels
-		// The return value is a pair. The first element is invalidation
-		// latency, and the second is wether the value has new version
-		// in higher level and this level.
-		std::pair<long, bool> invalidate(long addr);
+    long get_tag(long addr)
+    {
+        return (addr >> tag_offset);
+    }
 
-		// Evict the victim from current set of lines.
-		// First do invalidation, then call evictline(L1 or L2) or send
-		// a write request to memory(L3) when dirty bit is on.
-		void evict(std::list<Line> *lines,
-				   std::list<Line>::iterator victim);
+    // Align the address to cache line size
+    long align(long addr)
+    {
+        return (addr & ~(block_size - 1l));
+    }
 
-		// First test whether need eviction, if so, do eviction by
-		// calling evict function. Then allocate a new line and return
-		// the iterator points to it.
-		std::list<Line>::iterator allocate_line(
-			std::list<Line> &lines, long addr);
+    // Evict the cache line from higher level to this level.
+    // Pass the dirty bit and update LRU queue.
+    void evictline(long addr, bool dirty);
 
-		// Check whether the set to hold addr has space or eviction is
-		// needed.
-		bool need_eviction(const std::list<Line> &lines, long addr);
+    // Invalidate the line from this level to higher levels
+    // The return value is a pair. The first element is invalidation
+    // latency, and the second is wether the value has new version
+    // in higher level and this level.
+    std::pair<long, bool> invalidate(long addr);
 
-		// Check whether this addr is hit and fill in the pos_ptr with
-		// the iterator to the hit line or lines.end()
-		bool is_hit(std::list<Line> &lines, long addr,
-					std::list<Line>::iterator *pos_ptr);
+    // Evict the victim from current set of lines.
+    // First do invalidation, then call evictline(L1 or L2) or send
+    // a write request to memory(L3) when dirty bit is on.
+    void evict(std::list<Line>* lines,
+        std::list<Line>::iterator victim);
 
-		bool all_sets_locked(const std::list<Line> &lines)
-		{
-			if (lines.size() < assoc)
-			{
-				return false;
-			}
-			for (const auto &line : lines)
-			{
-				if (!line.lock)
-				{
-					return false;
-				}
-			}
-			return true;
-		}
+    // First test whether need eviction, if so, do eviction by
+    // calling evict function. Then allocate a new line and return
+    // the iterator points to it.
+    std::list<Line>::iterator allocate_line(
+        std::list<Line>& lines, long addr);
 
-		bool check_unlock(long addr)
-		{
-			auto it = cache_lines.find(get_index(addr));
-			if (it == cache_lines.end())
-			{
-				return true;
-			}
-			else
-			{
-				auto &lines = it->second;
-				auto line = find_if(lines.begin(), lines.end(),
-									[addr, this](Line l)
-									{ return (l.tag == get_tag(addr)); });
-				if (line == lines.end())
-				{
-					return true;
-				}
-				else
-				{
-					bool check = !line->lock;
-					if (!is_first_level)
-					{
-						for (auto hc : higher_cache)
-						{
-							if (!check)
-							{
-								return check;
-							}
-							check = check && hc->check_unlock(line->addr);
-						}
-					}
-					return check;
-				}
-			}
-		}
+    // Check whether the set to hold addr has space or eviction is
+    // needed.
+    bool need_eviction(const std::list<Line>& lines, long addr);
 
-		std::vector<std::pair<long, std::list<Line>::iterator>>::iterator
-		hit_mshr(long addr)
-		{
-			auto mshr_it =
-				find_if(mshr_entries.begin(), mshr_entries.end(),
-						[addr, this](std::pair<long, std::list<Line>::iterator>
-										 mshr_entry)
-						{
-							return (align(mshr_entry.first) == align(addr));
-						});
-			return mshr_it;
-		}
+    // Check whether this addr is hit and fill in the pos_ptr with
+    // the iterator to the hit line or lines.end()
+    bool is_hit(std::list<Line>& lines, long addr,
+        std::list<Line>::iterator* pos_ptr);
 
-		std::list<Line> &get_lines(long addr)
-		{
-			if (cache_lines.find(get_index(addr)) == cache_lines.end())
-			{
-				cache_lines.insert(make_pair(get_index(addr),
-											 std::list<Line>()));
-			}
-			return cache_lines[get_index(addr)];
-		}
-	};
+    bool all_sets_locked(const std::list<Line>& lines)
+    {
+        if (lines.size() < assoc) {
+            return false;
+        }
+        for (const auto& line : lines) {
+            if (!line.lock) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-	class CacheSystem
-	{
-	public:
-		CacheSystem(const Config &configs, std::function<bool(Request)> send_memory) : send_memory(send_memory)
-		{
-			if (configs.has_core_caches())
-			{
-				first_level = Cache::Level::L1;
-			}
-			else if (configs.has_l3_cache())
-			{
-				first_level = Cache::Level::L3;
-			}
-			else
-			{
-				last_level = Cache::Level::MAX; // no cache
-			}
+    bool check_unlock(long addr)
+    {
+        auto it = cache_lines.find(get_index(addr));
+        if (it == cache_lines.end()) {
+            return true;
+        } else {
+            auto& lines = it->second;
+            auto line = find_if(lines.begin(), lines.end(),
+                [addr, this](Line l) { return (l.tag == get_tag(addr)); });
+            if (line == lines.end()) {
+                return true;
+            } else {
+                bool check = !line->lock;
+                if (!is_first_level) {
+                    for (auto hc : higher_cache) {
+                        if (!check) {
+                            return check;
+                        }
+                        check = check && hc->check_unlock(line->addr);
+                    }
+                }
+                return check;
+            }
+        }
+    }
 
-			if (configs.has_l3_cache())
-			{
-				last_level = Cache::Level::L3;
-			}
-			else if (configs.has_core_caches())
-			{
-				last_level = Cache::Level::L2;
-			}
-			else
-			{
-				last_level = Cache::Level::MAX; // no cache
-			}
-		}
+    std::vector<std::pair<long, std::list<Line>::iterator>>::iterator
+    hit_mshr(long addr)
+    {
+        auto mshr_it = find_if(mshr_entries.begin(), mshr_entries.end(),
+            [addr, this](std::pair<long, std::list<Line>::iterator>
+                    mshr_entry) {
+                return (align(mshr_entry.first) == align(addr));
+            });
+        return mshr_it;
+    }
 
-		// wait_list contains miss requests with their latencies in
-		// cache. When this latency is met, the send_memory function
-		// will be called to send the request to the memory system.
-		std::list<std::pair<long, Request>> wait_list;
+    std::list<Line>& get_lines(long addr)
+    {
+        if (cache_lines.find(get_index(addr)) == cache_lines.end()) {
+            cache_lines.insert(make_pair(get_index(addr),
+                std::list<Line>()));
+        }
+        return cache_lines[get_index(addr)];
+    }
+};
 
-		// hit_list contains hit requests with their latencies in cache.
-		// callback function will be called when this latency is met and
-		// set the instruction status to ready in processor's window.
-		std::list<std::pair<long, Request>> hit_list;
+class CacheSystem {
+public:
+    CacheSystem(const Config& configs, std::function<bool(Request)> send_memory)
+        : send_memory(send_memory)
+    {
+        if (configs.has_core_caches()) {
+            first_level = Cache::Level::L1;
+        } else if (configs.has_l3_cache()) {
+            first_level = Cache::Level::L3;
+        } else {
+            last_level = Cache::Level::MAX; // no cache
+        }
 
-		std::function<bool(Request)> send_memory;
+        if (configs.has_l3_cache()) {
+            last_level = Cache::Level::L3;
+        } else if (configs.has_core_caches()) {
+            last_level = Cache::Level::L2;
+        } else {
+            last_level = Cache::Level::MAX; // no cache
+        }
+    }
 
-		long clk = 0;
-		void tick();
+    // wait_list contains miss requests with their latencies in
+    // cache. When this latency is met, the send_memory function
+    // will be called to send the request to the memory system.
+    std::list<std::pair<long, Request>> wait_list;
 
-		Cache::Level first_level;
-		Cache::Level last_level;
-	};
+    // hit_list contains hit requests with their latencies in cache.
+    // callback function will be called when this latency is met and
+    // set the instruction status to ready in processor's window.
+    std::list<std::pair<long, Request>> hit_list;
+
+    std::function<bool(Request)> send_memory;
+
+    long clk = 0;
+    void tick();
+    void reset_state();
+
+    Cache::Level first_level;
+    Cache::Level last_level;
+};
 
 } // namespace ramulator
 

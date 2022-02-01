@@ -3,8 +3,9 @@
 using namespace std;
 using namespace ramulator;
 
-Config::Config(const std::string& fname) {
-  parse(fname);
+Config::Config(const std::string& fname)
+{
+    parse(fname);
 }
 
 void Config::parse(const string& fname)
@@ -18,7 +19,7 @@ void Config::parse(const string& fname)
 
         while (true) {
             size_t start = line.find_first_not_of(delim);
-            if (start == string::npos) 
+            if (start == string::npos)
                 break;
 
             size_t end = line.find_first_of(delim, start);
@@ -45,25 +46,23 @@ void Config::parse(const string& fname)
         options[tokens[0]] = tokens[1];
 
         if (tokens[0] == "channels") {
-          channels = atoi(tokens[1].c_str());
+            channels = atoi(tokens[1].c_str());
         } else if (tokens[0] == "ranks") {
-          ranks = atoi(tokens[1].c_str());
+            ranks = atoi(tokens[1].c_str());
         } else if (tokens[0] == "subarrays") {
-          subarrays = atoi(tokens[1].c_str());
+            subarrays = atoi(tokens[1].c_str());
         } else if (tokens[0] == "cpu_tick") {
-          cpu_tick = atoi(tokens[1].c_str());
+            cpu_tick = atoi(tokens[1].c_str());
         } else if (tokens[0] == "mem_tick") {
-          mem_tick = atoi(tokens[1].c_str());
+            mem_tick = atoi(tokens[1].c_str());
         } else if (tokens[0] == "expected_limit_insts") {
-          expected_limit_insts = atoi(tokens[1].c_str());
+            expected_limit_insts = atoi(tokens[1].c_str());
         } else if (tokens[0] == "warmup_insts") {
-          warmup_insts = atoi(tokens[1].c_str());
+            warmup_insts = atoi(tokens[1].c_str());
         } else if (tokens[0] == "gpic_level") {
-          gpic_level = atoi(tokens[1].c_str());
-          std::cout << "GPIC LEVEL: " << gpic_level << endl;
+            gpic_level = atoi(tokens[1].c_str());
+            std::cout << "GPIC LEVEL: " << gpic_level << endl;
         }
     }
     file.close();
 }
-
-

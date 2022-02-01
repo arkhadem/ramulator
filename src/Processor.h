@@ -44,7 +44,7 @@ public:
     int depth = 128;
 
     Window(Core* core)
-        : ready_list(depth)
+        : ready_list(depth, false)
         , sent_list(depth, false)
         , addr_list(depth, -1)
         , req_list(depth, Request())
@@ -54,10 +54,10 @@ public:
     bool is_full();
     bool is_empty();
     void insert(bool ready, Request& req);
-    void insert(bool ready, long addr);
-    long retire();
-    void set_ready(long addr, int mask);
+    void set_ready(Request req);
+    void set_ready(Request req, int mask);
     long tick();
+    void reset_state();
 
 private:
     bool find_older_stores(long a_s, long a_e, Request::Type& type, int location);
@@ -66,6 +66,7 @@ private:
     int load = 0;
     int head = 0;
     int tail = 0;
+    long last_id = 0;
     std::vector<bool> ready_list;
     std::vector<bool> sent_list;
     std::vector<long> addr_list;
@@ -86,6 +87,7 @@ public:
         function<bool(Request)> send_next, Cache* llc,
         std::shared_ptr<CacheSystem> cachesys, MemoryBase& memory);
     void tick();
+    void reset_state();
     void receive(Request& req);
     void reset_stats();
     double calc_ipc();
@@ -98,15 +100,8 @@ public:
     bool no_core_caches = true;
     bool no_shared_cache = true;
     bool gpic_mode = false;
-    int l1_size = 1 << 15;
-    int l1_assoc = 1 << 3;
-    int l1_blocksz = 1 << 6;
-    int l1_mshr_num = 16;
+    int gpic_level = 1;
 
-    int l2_size = 1 << 18;
-    int l2_assoc = 1 << 3;
-    int l2_blocksz = 1 << 6;
-    int l2_mshr_num = 16;
     std::vector<std::shared_ptr<Cache>> caches;
     Cache* llc;
 
@@ -121,10 +116,10 @@ private:
     Window window;
     Request request;
 
-    long bubble_cnt;
+    long bubble_cnt = -1;
     long req_addr = -1;
-    int req_en;
-    std::string req_opcode;
+    int req_en = -1;
+    std::string req_opcode = "NULL";
     Request::Type req_type = Request::Type::MAX;
     bool more_reqs = true;
     long last = 0;
@@ -143,6 +138,7 @@ public:
     Processor(const Config& configs, vector<const char*> trace_list,
         function<bool(Request)> send, MemoryBase& memory);
     void tick();
+    void reset_state();
     void receive(Request& req);
     void reset_stats();
     bool finished();
@@ -158,11 +154,6 @@ public:
 
     bool no_core_caches = true;
     bool no_shared_cache = true;
-
-    int l3_size = 1 << 23;
-    int l3_assoc = 1 << 3;
-    int l3_blocksz = 1 << 6;
-    int mshr_per_bank = 16;
 
     std::shared_ptr<CacheSystem> cachesys;
     Cache llc;
