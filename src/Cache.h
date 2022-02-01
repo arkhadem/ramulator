@@ -166,10 +166,11 @@ protected:
     };
 
     std::map<Request, int> gpic_op_to_num_mem_op;
-    std::map<Request, int> gpic_op_to_send;
 
     std::vector<std::pair<long, Request>> gpic_instruction_queue;
     long last_gpic_instruction_clk = -1;
+    bool last_gpic_instruction_started = false;
+    bool last_gpic_instruction_sent = false;
 
     int calc_log2(int val)
     {
