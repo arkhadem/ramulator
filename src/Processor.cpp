@@ -9,13 +9,13 @@ Processor::Processor(const Config& configs,
     vector<const char*> trace_list,
     function<bool(Request)> send_memory,
     MemoryBase& memory)
-    : ipcs(trace_list.size(), -1)
+    : ipcs(configs.get_core_num(), -1)
     , early_exit(configs.is_early_exit())
     , no_core_caches(!configs.has_core_caches())
     , no_shared_cache(!configs.has_l3_cache())
     , cachesys(new CacheSystem(configs, send_memory))
     , llc(l3_size, l3_assoc, l3_blocksz,
-          mshr_per_bank * trace_list.size(),
+          mshr_per_bank * configs.get_core_num(),
           Cache::Level::L3, cachesys)
 {
 
@@ -40,6 +40,7 @@ Processor::Processor(const Config& configs,
                 cachesys, memory));
         }
     } else {
+        llc.processor_callback = std::bind(&Processor::receive, this, placeholders::_1);
         for (int i = 0; i < configs.get_core_num(); ++i) {
             cores.emplace_back(new Core(configs, i, trace_lists[i],
                 std::bind(&Cache::send, &llc, std::placeholders::_1),
@@ -48,8 +49,11 @@ Processor::Processor(const Config& configs,
     }
 
     for (int i = 0; i < configs.get_core_num(); ++i) {
-        cores[i]->callback = std::bind(&Processor::receive, this,
-            placeholders::_1);
+        cores[i]->callback = std::bind(&Processor::receive, this, placeholders::_1);
+        for (int idx = 0; idx < cores[i].get()->caches.size(); idx++) {
+            Cache* cache = cores[i].get()->caches[idx].get();
+            cache->processor_callback = std::bind(&Processor::receive, this, placeholders::_1);
+        }
     }
 
     // regStats
@@ -104,6 +108,7 @@ void Processor::reset_state()
 
 void Processor::receive(Request& req)
 {
+    hint("Processor received %s\n", req.c_str());
     if (req.type == Request::Type::GPIC) {
         cores[req.coreid].get()->receive(req);
     } else {

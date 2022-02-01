@@ -465,7 +465,7 @@ void Cache::tick()
                     Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
                     int req_coreid = req.coreid;
                     Request::UnitID req_unitid = (Request::UnitID)(level);
-                    Request mem_req(req_addr, req_type, std::bind(&Cache::callback, this, placeholders::_1), req_coreid, req_unitid);
+                    Request mem_req(req_addr, req_type, processor_callback, req_coreid, req_unitid);
                     mem_req.reqid = last_id;
                     last_id++;
 
