@@ -9,7 +9,16 @@
 #include <vector>
 #define MAX_CORE_ID 16
 
-#define DEBUG
+// #define DEBUG
+
+#ifndef DEBUG
+#define hint(...)
+#else
+#define hint(...)            \
+    do {                     \
+        printf(__VA_ARGS__); \
+    } while (0)
+#endif
 
 namespace ramulator {
 

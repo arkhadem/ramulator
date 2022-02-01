@@ -15,7 +15,7 @@
 #include <queue>
 
 #define MAX_GPIC_QUEUE_SIZE 32
-#define DEBUG_CACHE
+// #define DEBUG_CACHE
 
 namespace ramulator {
 class CacheSystem;

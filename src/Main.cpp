@@ -130,9 +130,8 @@ void run_cputrace(const Config& configs, Memory<T, Controller>& memory, const st
 
     warmup_complete = true;
     printf("Warmup complete! Resetting stats...\n");
-    Stats::curTick = 0;
     Stats::reset_stats();
-    proc.reset_state();
+    proc.reset_stats();
     assert(proc.get_insts() == 0);
 
     printf("Starting the simulation...\n");
@@ -201,8 +200,9 @@ void run_gpictrace(const Config& configs, Memory<T, Controller>& memory, const s
 
     warmup_complete = true;
     printf("Warmup complete! Resetting stats...\n");
+    Stats::curTick = 0;
     Stats::reset_stats();
-    proc.reset_stats();
+    proc.reset_state();
     assert(proc.get_insts() == 0);
 
     printf("Starting the simulation...\n");
@@ -235,6 +235,7 @@ void run_gpictrace(const Config& configs, Memory<T, Controller>& memory, const s
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
+    proc.reset_state();
 }
 
 template <typename T>

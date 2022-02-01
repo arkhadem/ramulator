@@ -82,9 +82,7 @@ void Processor::tick()
 
 void Processor::reset_state()
 {
-#ifdef DEBUG
-    printf("Processor state reset\n");
-#endif
+    hint("Processor state reset\n");
     cpu_cycles = 0;
     ipc = 0;
     for (unsigned int i = 0; i < ipcs.size(); i++)
@@ -210,11 +208,11 @@ Core::Core(const Config& configs, int coreid,
         // L2 caches[0]
         caches.emplace_back(new Cache(
             l2_size, l2_assoc, l2_blocksz, l2_mshr_num,
-            Cache::Level::L2, cachesys));
+            Cache::Level::L2, cachesys, id));
         // L1 caches[1]
         caches.emplace_back(new Cache(
             l1_size, l1_assoc, l1_blocksz, l1_mshr_num,
-            Cache::Level::L1, cachesys));
+            Cache::Level::L1, cachesys, id));
         if (llc != nullptr) {
             caches[0]->concatlower(llc);
         }
@@ -275,9 +273,7 @@ Core::Core(const Config& configs, int coreid,
 
 double Core::calc_ipc()
 {
-#ifdef DEBUG
     printf("[%d]retired: %ld, clk, %ld\n", id, retired, clk);
-#endif
     return (double)retired / clk;
 }
 
@@ -397,7 +393,7 @@ void Core::tick()
             // write request
             assert(req_type == Request::Type::WRITE);
             Request req(req_addr, req_type, callback, id, Request::UnitID::CORE);
-            printf("5- CORE sending %s to cache\n", req.c_str());
+            hint("5- CORE sending %s to cache\n", req.c_str());
             if (!send(req))
                 return;
             cpu_inst++;
@@ -439,9 +435,7 @@ void Core::tick()
 
 void Core::reset_state()
 {
-#ifdef DEBUG
-    printf("Core %d state reset\n", id);
-#endif
+    hint("Core %d state reset\n", id);
 
     clk = 0;
     retired = 0;
@@ -490,7 +484,7 @@ bool Core::is_warmed_up()
 
 void Core::receive(Request& req)
 {
-    printf("Core received %s\n", req.c_str());
+    hint("Core received %s\n", req.c_str());
     if (req.type == Request::Type::GPIC) {
         window.set_ready(req);
     } else {
@@ -583,18 +577,18 @@ bool Window::check_send(Request& req, int location)
         if (find_older_unsent(0, location) == false) {
             if (req.opcode.find("store") != string::npos) {
                 // GPIC STORE: Do Nothing
-                // printf("failed to send %s because store must be at the head of rob\n", req.c_str());
+                // hint("failed to send %s because store must be at the head of rob\n", req.c_str());
                 return false;
             } else if (req.opcode.find("load") != string::npos) {
                 // GPIC LOAD: Find older stores
                 Request::Type type;
                 if (find_older_stores(req.addr, req.addr_end, type, location)) {
                     // Do Nothing
-                    // printf("failed to send %s because of older store\n", req.c_str());
+                    // hint("failed to send %s because of older store\n", req.c_str());
                     return false;
                 } else {
                     // Send it
-                    printf("6- CORE sending %s to cache\n", req.c_str());
+                    hint("6- CORE sending %s to cache\n", req.c_str());
                     if (!core->send(req)) {
                         retry_list.push_back(req);
                     }
@@ -603,7 +597,7 @@ bool Window::check_send(Request& req, int location)
             } else {
                 // GPIC COMPUTATIONAL
                 // Send it
-                printf("7- CORE sending %s to cache\n", req.c_str());
+                hint("7- CORE sending %s to cache\n", req.c_str());
                 if (!core->send(req)) {
                     retry_list.push_back(req);
                 }
@@ -611,7 +605,7 @@ bool Window::check_send(Request& req, int location)
             }
         } else {
             // Do Nothing
-            // printf("failed to send %s because of same older instructions\n", req.c_str());
+            // hint("failed to send %s because of same older instructions\n", req.c_str());
             return false;
         }
     } else if (req.type == Request::Type::READ) {
@@ -630,9 +624,8 @@ bool Window::check_send(Request& req, int location)
             }
         } else {
             // Send it
-            printf("8- CORE sending %s to cache\n", req.c_str());
+            hint("8- CORE sending %s to cache\n", req.c_str());
             if (!core->send(req)) {
-                printf("added here\n");
                 retry_list.push_back(req);
             }
             return true;
@@ -653,7 +646,7 @@ void Window::insert(bool ready, Request& req)
     req.reqid = last_id;
     last_id++;
 
-    printf("insert called for %s\n", req.c_str());
+    hint("insert called for %s\n", req.c_str());
 
     ready_list.at(head) = ready;
     req_list.at(head) = req;
@@ -677,10 +670,10 @@ long Window::tick()
 {
     assert(load <= depth);
 
-    // printf("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
+    // hint("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
 
     while (retry_list.size()) {
-        printf("1- CORE sending %s to cache\n", retry_list.at(0).c_str());
+        hint("1- CORE sending %s to cache\n", retry_list.at(0).c_str());
         if (core->send(retry_list.at(0))) {
             retry_list.erase(retry_list.begin());
         } else {
@@ -688,14 +681,14 @@ long Window::tick()
         }
     }
 
-    // printf("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
+    // hint("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
 
     if (load == 0) {
-        // printf("returned for zero load\n");
+        // hint("returned for zero load\n");
         return 0;
     }
 
-    // printf("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
+    // hint("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
 
     int retired = 0;
     while (load > 0 && retired < ipc) {
@@ -703,7 +696,7 @@ long Window::tick()
         if (sent_list.at(tail) == false) {
             // Send it
             Request req = req_list.at(tail);
-            printf("2- CORE sending %s to cache\n", req.c_str());
+            hint("2- CORE sending %s to cache\n", req.c_str());
             if (!core->send(req)) {
                 retry_list.push_back(req);
             }
@@ -713,19 +706,24 @@ long Window::tick()
         if (!ready_list.at(tail))
             break;
 
-#ifdef DEBUG
-        cout << "Retired: " << req_list.at(tail).c_str() << endl;
-#endif
+        hint("Retired: %s\n", req_list.at(tail).c_str());
+
+        // remove all data from tail
+        ready_list.at(tail) = false;
+        sent_list.at(tail) = false;
+        addr_list.at(tail) = -1;
+        req_list.at(tail) = Request();
+
         tail = (tail + 1) % depth;
         load--;
         retired++;
     }
 
-    // printf("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
+    // hint("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
 
     int idx = tail;
     for (int i = 0; i < load; i++) {
-        // printf("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
+        // hint("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
         if (!sent_list.at(idx)) {
             if (check_send(req_list.at(idx), idx)) {
                 sent_list.at(idx) = true;
@@ -734,16 +732,14 @@ long Window::tick()
         idx = (idx + 1) % depth;
     }
 
-    // printf("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
+    // hint("window ticked, head(%d), tail(%d), load(%d)\n", head, tail, load);
 
     return retired;
 }
 
 void Window::reset_state()
 {
-#ifdef DEBUG
-    printf("Core %d's window state reset\n", core->id);
-#endif
+    hint("Core %d's window state reset\n", core->id);
     assert(load == 0);
     assert(head == tail);
     head = 0;
@@ -770,7 +766,7 @@ void Window::set_ready(Request req)
     for (int i = 0; i < load; i++) {
         int index = (tail + i) % depth;
         if (req_list.at(index) == req) {
-            printf("ready set for %s at location %d\n", req_list.at(index).c_str(), index);
+            hint("ready set for %s at location %d\n", req_list.at(index).c_str(), index);
             ready_list.at(index) = true;
         }
     }
@@ -788,7 +784,7 @@ void Window::set_ready(Request req, int mask)
         int index = (tail + i) % depth;
         Request cur_req = req_list.at(index);
         if (((cur_req.addr & mask) == (req.addr & mask)) && (cur_req.coreid == req.coreid) && (cur_req.unitid == req.unitid)) {
-            printf("ready set for %s at location %d\n", cur_req.c_str(), index);
+            hint("ready set for %s at location %d\n", cur_req.c_str(), index);
             ready_list.at(index) = true;
         }
     }
@@ -883,17 +879,15 @@ bool Trace::get_gpic_request(std::string& req_opcode, int& req_en, long& req_add
             }
         }
 
-#ifdef DEBUG
         if (req_en != -1)
             if (req_addr != -1)
-                printf("get_gpic_request returned type: GPIC opcode: %s, enable: %d, address: 0x%lx\n", req_opcode.c_str(), req_en, req_addr);
+                hint("get_gpic_request returned type: GPIC opcode: %s, enable: %d, address: 0x%lx\n", req_opcode.c_str(), req_en, req_addr);
             else
-                printf("get_gpic_request returned type: GPIC opcode: %s, enable: %d\n", req_opcode.c_str(), req_en);
+                hint("get_gpic_request returned type: GPIC opcode: %s, enable: %d\n", req_opcode.c_str(), req_en);
         else if (req_addr != -1)
-            printf("get_gpic_request returned type: LOAD/STORE opcode: %s, address: 0x%lx\n", req_opcode.c_str(), req_addr);
+            hint("get_gpic_request returned type: LOAD/STORE opcode: %s, address: 0x%lx\n", req_opcode.c_str(), req_addr);
         else
-            printf("get_gpic_request type: INITIALIZED returned opcode: %s\n", req_opcode.c_str());
-#endif
+            hint("get_gpic_request type: INITIALIZED returned opcode: %s\n", req_opcode.c_str());
         last_trace++;
         return true;
     }
@@ -939,9 +933,7 @@ bool Trace::get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Ty
             req_type = Request::Type::WRITE;
         else
             assert(false);
-#ifdef DEBUG
-        printf("get_unfiltered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
-#endif
+        hint("get_unfiltered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
         last_trace++;
         return true;
     }
@@ -982,9 +974,7 @@ bool Trace::get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type
         req_type = Request::Type::READ;
 
         pos = line.find_first_not_of(' ', pos + end);
-#ifdef DEBUG
-        printf("get_filtered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
-#endif
+        hint("get_filtered_request returned bubble count: %ld, request address: %ld, type: %s\n", bubble_cnt, req_addr, req_type_names[(int)req_type]);
         last_trace++;
         return true;
     }
@@ -1019,9 +1009,7 @@ bool Trace::get_dramtrace_request(long& req_addr, Request::Type& req_type)
             req_type = Request::Type::WRITE;
         else
             assert(false);
-#ifdef DEBUG
-        printf("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
-#endif
+        hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         last_trace++;
         return true;
     }

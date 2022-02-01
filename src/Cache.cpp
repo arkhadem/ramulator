@@ -105,7 +105,7 @@ bool Cache::send(Request req)
         if (gpic_instruction_queue.size() >= MAX_GPIC_QUEUE_SIZE) {
             return false;
         } else {
-            printf("%s set for %ld clock cycles (%ld)\n", req.c_str(), latency_each[int(level)] + GPIC_DELAY[req.opcode], last_gpic_instruction_clk);
+            hint("%s set for %ld clock cycles (%ld)\n", req.c_str(), latency_each[int(level)] + GPIC_DELAY[req.opcode], last_gpic_instruction_clk);
             gpic_instruction_queue.push_back(make_pair(latency_each[int(level)] + GPIC_DELAY[req.opcode], req));
             assert(gpic_op_to_send.count(req) == 0);
             gpic_op_to_send[req] = false;
@@ -199,7 +199,7 @@ bool Cache::send(Request req)
         if (!is_last_level) {
             retry_list.push_back(time_req);
         } else {
-            printf("11- %s sending %s to cachesystem waitlist\n", level_string.c_str(), req.c_str());
+            hint("11- %s sending %s to cachesystem waitlist\n", level_string.c_str(), req.c_str());
             cachesys->wait_list.push_back(time_req);
         }
         return true;
@@ -382,7 +382,7 @@ bool Cache::need_eviction(const std::list<Line>& lines, long addr)
 void Cache::callback(Request& req)
 {
     debug("level %d", int(level));
-    printf("%s received in %s\n", req.c_str(), level_string.c_str());
+    hint("%s received in %s\n", req.c_str(), level_string.c_str());
 
     // Remove related MSHR entries
     auto MSHR_it = find_if(mshr_entries.begin(), mshr_entries.end(),
@@ -393,9 +393,9 @@ void Cache::callback(Request& req)
     if (MSHR_it != mshr_entries.end()) {
         MSHR_it->second->lock = false;
         mshr_entries.erase(MSHR_it);
-        printf("MSHR entry removed at %s\n", level_string.c_str());
+        hint("MSHR entry removed at %s\n", level_string.c_str());
     } else {
-        printf("NO MSHR entry removed at %s\n", level_string.c_str());
+        hint("NO MSHR entry removed at %s\n", level_string.c_str());
     }
 
     // Remove corresponding GPIC instructions
@@ -404,12 +404,12 @@ void Cache::callback(Request& req)
         Request GPIC_req = GPIC_it->first;
         if (gpic_op_to_send[GPIC_req]) {
             if ((align(req.addr) >= align(GPIC_req.addr)) && (align(req.addr) <= align(GPIC_req.addr_end))) {
-                printf("%s: %s calls back for %s, %d instructions remained\n", level_string.c_str(), req.c_str(), GPIC_req.c_str(), GPIC_it->second - 1);
+                hint("%s: %s calls back for %s, %d instructions remained\n", level_string.c_str(), req.c_str(), GPIC_req.c_str(), GPIC_it->second - 1);
                 if ((--GPIC_it->second) == 0) {
-                    printf("%s: calling back %s\n", level_string.c_str(), GPIC_req.c_str());
+                    hint("%s: calling back %s\n", level_string.c_str(), GPIC_req.c_str());
                     GPIC_req.callback(GPIC_req);
                     GPIC_it = gpic_op_to_num_mem_op.erase(GPIC_it);
-                    gpic_op_to_send.erase(GPIC_req);
+                    assert(gpic_op_to_send.erase(GPIC_req));
                     continue;
                 }
             }
@@ -434,7 +434,7 @@ void Cache::tick()
     auto it = retry_list.begin();
     while (it != retry_list.end()) {
         if (cachesys->clk >= it->first) {
-            printf("9- %s sending %s to %s\n", level_string.c_str(), it->second.c_str(), lower_cache->level_string.c_str());
+            hint("9- %s sending %s to %s\n", level_string.c_str(), it->second.c_str(), lower_cache->level_string.c_str());
             if (lower_cache->send(it->second)) {
                 it = retry_list.erase(it);
             }
@@ -457,7 +457,7 @@ void Cache::tick()
                 int access_needed = (long)(std::ceil((float)(req.addr_end - req.addr + 1) / (float)(block_size)));
                 assert(gpic_op_to_num_mem_op.count(req) == 0);
                 gpic_op_to_num_mem_op[req] = access_needed;
-                printf("10- %s unpacking %d instructions for %s\n", level_string.c_str(), access_needed, req.c_str());
+                hint("10- %s unpacking %d instructions for %s\n", level_string.c_str(), access_needed, req.c_str());
                 for (int i = 0; i < access_needed; i++) {
 
                     // make the request
@@ -470,7 +470,7 @@ void Cache::tick()
                     last_id++;
 
                     // send it
-                    printf("10- %s sending %s to %s\n", level_string.c_str(), mem_req.c_str(), level_string.c_str());
+                    hint("10- %s sending %s to %s\n", level_string.c_str(), mem_req.c_str(), level_string.c_str());
                     send(mem_req);
                 }
                 assert(gpic_op_to_send.count(req) == 1);
@@ -478,6 +478,7 @@ void Cache::tick()
             } else {
                 // Otherwise, we are ready to send the call back
                 req.callback(req);
+                assert(gpic_op_to_send.erase(req));
             }
 
             gpic_instruction_queue.erase(gpic_instruction_queue.begin());
@@ -487,19 +488,17 @@ void Cache::tick()
 
     if ((gpic_instruction_queue.size() != 0) && (last_gpic_instruction_clk == -1)) {
         // A new instruction must be started
-        printf("Starting %s at %ld, %zu instructions in queue\n", gpic_instruction_queue.at(0).second.c_str(), cachesys->clk, gpic_instruction_queue.size());
+        hint("Starting %s at %ld, %zu instructions in queue\n", gpic_instruction_queue.at(0).second.c_str(), cachesys->clk, gpic_instruction_queue.size());
         last_gpic_instruction_clk = cachesys->clk;
     }
 }
 
 void Cache::reset_state()
 {
-#ifdef DEBUG
     if (level == Level::L3)
-        printf("Cache %s state reset\n", level_string.c_str());
+        hint("Cache %s state reset\n", level_string.c_str());
     else
-        printf("Core %d's Cache %s state reset\n", core_id, level_string.c_str());
-#endif
+        hint("Core %d's Cache %s state reset\n", core_id, level_string.c_str());
 
     cache_read_miss = 0;
     cache_write_miss = 0;
@@ -556,9 +555,7 @@ void CacheSystem::tick()
 
 void CacheSystem::reset_state()
 {
-#ifdef DEBUG
-    printf("CacheSystem state reset\n");
-#endif
+    hint("CacheSystem state reset\n");
     clk = 0;
     assert(wait_list.size() == 0);
     assert(hit_list.size() == 0);
