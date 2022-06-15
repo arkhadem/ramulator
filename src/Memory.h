@@ -138,6 +138,7 @@ public:
 
         for (unsigned int lev = 0; lev < addr_bits.size(); lev++) {
             addr_bits[lev] = calc_log2(sz[lev]);
+            // printf("Level: %d \t size: %d \t bits: %d\n", lev, sz[lev], addr_bits[lev]);
             max_address *= sz[lev];
         }
 
@@ -312,6 +313,11 @@ public:
                 assert(false);
             }
         }
+
+        // printf("addr: %lx", req.addr);
+        // for (auto addr_bit : req.addr_vec)
+        //     printf(" %5d", addr_bit);
+        // printf("\n");
 
         if (ctrls[req.addr_vec[0]]->enqueue(req)) {
             // tally stats here to avoid double counting for requests that aren't enqueued
@@ -564,6 +570,9 @@ private:
     int slice_lower_bits(long& addr, int bits)
     {
         int lbits = addr & ((1 << bits) - 1);
+
+        // printf("lbits(%lx) = addr(%lx) & (%lx)\n", lbits, addr, ((1 << bits) - 1));
+
         addr >>= bits;
         return lbits;
     }

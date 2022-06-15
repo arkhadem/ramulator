@@ -34,20 +34,25 @@ using namespace ramulator;
 
 bool ramulator::warmup_complete = false;
 
-int ramulator::l1_size = 1 << 15;
-int ramulator::l1_assoc = 1 << 3;
+int ramulator::l1_size = 1 << 16;
+int ramulator::l1_assoc = 1 << 2;
 int ramulator::l1_blocksz = 1 << 6;
-int ramulator::l1_mshr_num = 16;
+int ramulator::l1_mshr_num = 12;
+float ramulator::l1_access_energy = 9.006323047;
 
-int ramulator::l2_size = 1 << 18;
-int ramulator::l2_assoc = 1 << 3;
+int ramulator::l2_size = 1 << 17;
+int ramulator::l2_assoc = 1 << 2;
 int ramulator::l2_blocksz = 1 << 6;
-int ramulator::l2_mshr_num = 16;
+int ramulator::l2_mshr_num = 46;
+float ramulator::l2_access_energy = 20.655976172;
 
-int ramulator::l3_size = 1 << 23;
-int ramulator::l3_assoc = 1 << 3;
+int ramulator::l3_size = 1 << 21;
+int ramulator::l3_assoc = 1 << 4;
 int ramulator::l3_blocksz = 1 << 6;
-int ramulator::mshr_per_bank = 16;
+int ramulator::mshr_per_bank = 64;
+float ramulator::l3_access_energy = 167.581634688;
+
+std::ofstream ramulator::op_trace;
 
 template <typename T>
 void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const std::vector<const char*>& files)
@@ -85,7 +90,7 @@ void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const s
             }
         } else {
             memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
-                // write queue are drained
+                                                    // write queue are drained
         }
 
         memory.tick();
@@ -247,10 +252,12 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
     spec->set_channel_number(C);
     spec->set_rank_number(R);
     std::vector<Controller<T>*> ctrls;
+    int prev_children = 0;
     for (int c = 0; c < C; c++) {
         DRAM<T>* channel = new DRAM<T>(spec, T::Level::Channel);
         channel->id = c;
         channel->regStats("");
+        prev_children = channel->set_index(prev_children);
         Controller<T>* ctrl = new Controller<T>(configs, channel);
         ctrls.push_back(ctrl);
     }
@@ -326,6 +333,12 @@ int main(int argc, const char* argv[])
         stats_out = standard + string(".stats");
     }
 
+    op_trace.open(stats_out + ".map");
+    if (!op_trace.is_open()) {
+        printf("Could not open %s.map\n", (stats_out + ".map").c_str());
+        return -1;
+    }
+
     // A separate file defines mapping for easy config.
     if (strcmp(argv[trace_start], "--mapping") == 0) {
         configs.add("mapping", argv[trace_start + 1]);
@@ -395,6 +408,7 @@ int main(int argc, const char* argv[])
         start_run(configs, tldram, files);
     }
 
+    op_trace.close();
     printf("Simulation done. Statistics written to %s\n", stats_out.c_str());
 
     return 0;

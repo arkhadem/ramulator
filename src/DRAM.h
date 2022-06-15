@@ -2,23 +2,21 @@
 #define __DRAM_H
 
 #include "Statistics.h"
-#include <iostream>
-#include <vector>
-#include <deque>
-#include <map>
-#include <functional>
 #include <algorithm>
 #include <cassert>
+#include <deque>
+#include <functional>
+#include <iostream>
+#include <map>
 #include <type_traits>
+#include <vector>
 
 using namespace std;
 
-namespace ramulator
-{
+namespace ramulator {
 
 template <typename T>
-class DRAM
-{
+class DRAM {
 public:
     ScalarStat active_cycles;
     ScalarStat refresh_cycles;
@@ -38,6 +36,7 @@ public:
     // Tree Organization (e.g., Channel->Rank->Bank->Row->Column)
     typename T::Level level;
     int id;
+    int index;
     long size;
     DRAM* parent;
     vector<DRAM*> children;
@@ -87,11 +86,14 @@ public:
     // register statistics
     void regStats(const std::string& identifier);
 
+    // hierarchichaly sets the index value
+    int set_index(int prev_children);
+
     void finish(long dram_cycles);
 
 private:
     // Constructor
-    DRAM(){}
+    DRAM() { }
 
     // Timing
     long cur_clk = 0;
@@ -117,78 +119,94 @@ private:
     vector<typename T::TimingEntry>* timing;
 
     // Helper Functions
-    void update_state(typename T::Command cmd, const int* addr);
+    void update_state(typename T::Command cmd, const int* addr, long clk);
     void update_timing(typename T::Command cmd, const int* addr, long clk);
 }; /* class DRAM */
 
-
 // register statistics
 template <typename T>
-void DRAM<T>::regStats(const std::string& identifier) {
+void DRAM<T>::regStats(const std::string& identifier)
+{
     active_cycles
         .name("active_cycles" + identifier + "_" + to_string(id))
         .desc("Total active cycles for level " + identifier + "_" + to_string(id))
-        .precision(0)
-        ;
+        .precision(0);
     refresh_cycles
         .name("refresh_cycles" + identifier + "_" + to_string(id))
         .desc("(All-bank refresh only, only valid for rank level) The sum of cycles that is under refresh per memory cycle for level " + identifier + "_" + to_string(id))
         .precision(0)
-        .flags(Stats::nozero)
-        ;
+        .flags(Stats::nozero);
     busy_cycles
         .name("busy_cycles" + identifier + "_" + to_string(id))
         .desc("(All-bank refresh only. busy cycles only include refresh time in rank level) The sum of cycles that the DRAM part is active or under refresh for level " + identifier + "_" + to_string(id))
-        .precision(0)
-        ;
+        .precision(0);
     active_refresh_overlap_cycles
         .name("active_refresh_overlap_cycles" + identifier + "_" + to_string(id))
         .desc("(All-bank refresh only, only valid for rank level) The sum of cycles that are both active and under refresh per memory cycle for level " + identifier + "_" + to_string(id))
         .precision(0)
-        .flags(Stats::nozero)
-        ;
+        .flags(Stats::nozero);
     serving_requests
         .name("serving_requests" + identifier + "_" + to_string(id))
         .desc("The sum of read and write requests that are served in this DRAM element per memory cycle for level " + identifier + "_" + to_string(id))
-        .precision(0)
-        ;
+        .precision(0);
     average_serving_requests
         .name("average_serving_requests" + identifier + "_" + to_string(id))
         .desc("The average of read and write requests that are served in this DRAM element per memory cycle for level " + identifier + "_" + to_string(id))
-        .precision(6)
-        ;
+        .precision(6);
 
     if (!children.size()) {
-      return;
+        return;
     }
 
     // recursively register children statistics
     for (auto child : children) {
-      child->regStats(identifier + "_" + to_string(id));
+        child->regStats(identifier + "_" + to_string(id));
     }
 }
 
 template <typename T>
-void DRAM<T>::finish(long dram_cycles) {
-  // finalize busy cycles
-  busy_cycles = active_cycles.value() + refresh_cycles.value() - active_refresh_overlap_cycles.value();
+int DRAM<T>::set_index(int prev_children)
+{
+    index = prev_children;
 
-  // finalize average serving requests
-  average_serving_requests = serving_requests.value() / dram_cycles;
+    if (children.size() == 0) {
+        // I am a child
+        prev_children++;
+    } else {
+        for (auto child : children) {
+            prev_children = child->set_index(prev_children);
+        }
+    }
 
-  if (!children.size()) {
-    return;
-  }
+    return prev_children;
+}
 
-  for (auto child : children) {
-    child->finish(dram_cycles);
-  }
+template <typename T>
+void DRAM<T>::finish(long dram_cycles)
+{
+    // finalize busy cycles
+    busy_cycles = active_cycles.value() + refresh_cycles.value() - active_refresh_overlap_cycles.value();
+
+    // finalize average serving requests
+    average_serving_requests = serving_requests.value() / dram_cycles;
+
+    if (!children.size()) {
+        return;
+    }
+
+    for (auto child : children) {
+        child->finish(dram_cycles);
+    }
 }
 
 // Constructor
 template <typename T>
-DRAM<T>::DRAM(T* spec, typename T::Level level) :
-    spec(spec), level(level), id(0), parent(NULL)
+DRAM<T>::DRAM(T* spec, typename T::Level level)
+    : spec(spec)
+    , level(level)
+    , id(0)
+    , index(0)
+    , parent(NULL)
 {
 
     state = spec->start[(int)level];
@@ -224,13 +242,12 @@ DRAM<T>::DRAM(T* spec, typename T::Level level) :
         child->id = i;
         children.push_back(child);
     }
-
 }
 
 template <typename T>
 DRAM<T>::~DRAM()
 {
-    for (auto child: children)
+    for (auto child : children)
         delete child;
 }
 
@@ -247,7 +264,7 @@ void DRAM<T>::insert(DRAM<T>* child)
 template <typename T>
 typename T::Command DRAM<T>::decode(typename T::Command cmd, const int* addr)
 {
-    int child_id = addr[int(level)+1];
+    int child_id = addr[int(level) + 1];
     if (prereq[int(cmd)]) {
         typename T::Command prereq_cmd = prereq[int(cmd)](this, cmd, child_id);
         if (prereq_cmd != T::Command::MAX)
@@ -261,7 +278,6 @@ typename T::Command DRAM<T>::decode(typename T::Command cmd, const int* addr)
     return children[child_id]->decode(cmd, addr);
 }
 
-
 // Check
 template <typename T>
 bool DRAM<T>::check(typename T::Command cmd, const int* addr, long clk)
@@ -269,7 +285,7 @@ bool DRAM<T>::check(typename T::Command cmd, const int* addr, long clk)
     if (next[int(cmd)] != -1 && clk < next[int(cmd)])
         return false; // stop recursion: the check failed at this level
 
-    int child_id = addr[int(level)+1];
+    int child_id = addr[int(level) + 1];
     if (child_id < 0 || level == spec->scope[int(cmd)] || !children.size())
         return true; // stop recursion: the check passed at all levels
 
@@ -282,9 +298,9 @@ bool DRAM<T>::check(typename T::Command cmd, const int* addr, long clk)
 template <typename T>
 bool DRAM<T>::check_row_hit(typename T::Command cmd, const int* addr)
 {
-    int child_id = addr[int(level)+1];
+    int child_id = addr[int(level) + 1];
     if (rowhit[int(cmd)]) {
-        return rowhit[int(cmd)](this, cmd, child_id);  // stop recursion: there is a row hit at this level
+        return rowhit[int(cmd)](this, cmd, child_id); // stop recursion: there is a row hit at this level
     }
 
     if (child_id < 0 || !children.size())
@@ -297,9 +313,9 @@ bool DRAM<T>::check_row_hit(typename T::Command cmd, const int* addr)
 template <typename T>
 bool DRAM<T>::check_row_open(typename T::Command cmd, const int* addr)
 {
-    int child_id = addr[int(level)+1];
+    int child_id = addr[int(level) + 1];
     if (rowopen[int(cmd)]) {
-        return rowopen[int(cmd)](this, cmd, child_id);  // stop recursion: there is a row hit at this level
+        return rowopen[int(cmd)](this, cmd, child_id); // stop recursion: there is a row hit at this level
     }
 
     if (child_id < 0 || !children.size())
@@ -314,7 +330,7 @@ long DRAM<T>::get_next(typename T::Command cmd, const int* addr)
 {
     long next_clk = max(cur_clk, next[int(cmd)]);
     auto node = this;
-    for (int l = int(level); l < int(spec->scope[int(cmd)]) && node->children.size() && addr[l + 1] >= 0; l++){
+    for (int l = int(level); l < int(spec->scope[int(cmd)]) && node->children.size() && addr[l + 1] >= 0; l++) {
         node = node->children[addr[l + 1]];
         next_clk = max(next_clk, node->next[int(cmd)]);
     }
@@ -326,26 +342,28 @@ template <typename T>
 void DRAM<T>::update(typename T::Command cmd, const int* addr, long clk)
 {
     cur_clk = clk;
-    update_state(cmd, addr);
+    update_state(cmd, addr, clk);
     update_timing(cmd, addr, clk);
 }
 
-
 // Update (State)
 template <typename T>
-void DRAM<T>::update_state(typename T::Command cmd, const int* addr)
+void DRAM<T>::update_state(typename T::Command cmd, const int* addr, long clk)
 {
-    int child_id = addr[int(level)+1];
-    if (lambda[int(cmd)])
+    // if (children.size() == 0)
+    //     printf("%ld,%s,%d\n", clk, spec->command_name[int(cmd)].c_str(), index);
+
+    int child_id = addr[int(level) + 1];
+    if (lambda[int(cmd)]) {
         lambda[int(cmd)](this, child_id); // update this level
+    }
 
     if (level == spec->scope[int(cmd)] || !children.size())
         return; // stop recursion: updated all levels
 
     // recursively update my child
-    children[child_id]->update_state(cmd, addr);
+    children[child_id]->update_state(cmd, addr, clk);
 }
-
 
 // Update (Timing)
 template <typename T>
@@ -357,7 +375,7 @@ void DRAM<T>::update_timing(typename T::Command cmd, const int* addr, long clk)
             if (!t.sibling)
                 continue; // not an applicable timing parameter
 
-            assert (t.dist == 1);
+            assert(t.dist == 1);
 
             long future = clk + t.val;
             next[int(t.cmd)] = max(next[int(t.cmd)], future); // update future
@@ -368,7 +386,7 @@ void DRAM<T>::update_timing(typename T::Command cmd, const int* addr, long clk)
 
     // I am a target node
     if (prev[int(cmd)].size()) {
-        prev[int(cmd)].pop_back();  // FIXME TIANSHI why pop back?
+        prev[int(cmd)].pop_back(); // FIXME TIANSHI why pop back?
         prev[int(cmd)].push_front(clk); // update history
     }
 
@@ -376,7 +394,7 @@ void DRAM<T>::update_timing(typename T::Command cmd, const int* addr, long clk)
         if (t.sibling)
             continue; // not an applicable timing parameter
 
-        long past = prev[int(cmd)][t.dist-1];
+        long past = prev[int(cmd)][t.dist - 1];
         if (past < 0)
             continue; // not enough history
 
@@ -384,13 +402,13 @@ void DRAM<T>::update_timing(typename T::Command cmd, const int* addr, long clk)
         next[int(t.cmd)] = max(next[int(t.cmd)], future); // update future
         // TIANSHI: for refresh statistics
         if (spec->is_refreshing(cmd) && spec->is_opening(t.cmd)) {
-          assert(past == clk);
-          begin_of_refreshing = clk;
-          end_of_refreshing = max(end_of_refreshing, next[int(t.cmd)]);
-          refresh_cycles += end_of_refreshing - clk;
-          if (cur_serving_requests > 0) {
-            refresh_intervals.push_back(make_pair(begin_of_refreshing, end_of_refreshing));
-          }
+            assert(past == clk);
+            begin_of_refreshing = clk;
+            end_of_refreshing = max(end_of_refreshing, next[int(t.cmd)]);
+            refresh_cycles += end_of_refreshing - clk;
+            if (cur_serving_requests > 0) {
+                refresh_intervals.push_back(make_pair(begin_of_refreshing, end_of_refreshing));
+            }
         }
     }
 
@@ -402,48 +420,48 @@ void DRAM<T>::update_timing(typename T::Command cmd, const int* addr, long clk)
     // recursively update *all* of my children
     for (auto child : children)
         child->update_timing(cmd, addr, clk);
-
 }
 
 template <typename T>
-void DRAM<T>::update_serving_requests(const int* addr, int delta, long clk) {
-  assert(id == addr[int(level)]);
-  assert(delta == 1 || delta == -1);
-  // update total serving requests
-  if (begin_of_cur_reqcnt != -1 && cur_serving_requests > 0) {
-    serving_requests += (clk - begin_of_cur_reqcnt) * cur_serving_requests;
-    active_cycles += clk - begin_of_cur_reqcnt;
-  }
-  // update begin of current request number
-  begin_of_cur_reqcnt = clk;
-  cur_serving_requests += delta;
-  assert(cur_serving_requests >= 0);
-
-  if (delta == 1 && cur_serving_requests == 1) {
-    // transform from inactive to active
-    begin_of_serving = clk;
-    if (end_of_refreshing > begin_of_serving) {
-      active_refresh_overlap_cycles += end_of_refreshing - begin_of_serving;
+void DRAM<T>::update_serving_requests(const int* addr, int delta, long clk)
+{
+    assert(id == addr[int(level)]);
+    assert(delta == 1 || delta == -1);
+    // update total serving requests
+    if (begin_of_cur_reqcnt != -1 && cur_serving_requests > 0) {
+        serving_requests += (clk - begin_of_cur_reqcnt) * cur_serving_requests;
+        active_cycles += clk - begin_of_cur_reqcnt;
     }
-  } else if (cur_serving_requests == 0) {
-    // transform from active to inactive
-    assert(begin_of_serving != -1);
-    assert(delta == -1);
-    active_cycles += clk - begin_of_cur_reqcnt;
-    end_of_serving = clk;
+    // update begin of current request number
+    begin_of_cur_reqcnt = clk;
+    cur_serving_requests += delta;
+    assert(cur_serving_requests >= 0);
 
-    for (const auto& ref: refresh_intervals) {
-      active_refresh_overlap_cycles += min(end_of_serving, ref.second) - ref.first;
+    if (delta == 1 && cur_serving_requests == 1) {
+        // transform from inactive to active
+        begin_of_serving = clk;
+        if (end_of_refreshing > begin_of_serving) {
+            active_refresh_overlap_cycles += end_of_refreshing - begin_of_serving;
+        }
+    } else if (cur_serving_requests == 0) {
+        // transform from active to inactive
+        assert(begin_of_serving != -1);
+        assert(delta == -1);
+        active_cycles += clk - begin_of_cur_reqcnt;
+        end_of_serving = clk;
+
+        for (const auto& ref : refresh_intervals) {
+            active_refresh_overlap_cycles += min(end_of_serving, ref.second) - ref.first;
+        }
+        refresh_intervals.clear();
     }
-    refresh_intervals.clear();
-  }
 
-  int child_id = addr[int(level) + 1];
-  // We only count the level bank or the level higher than bank
-  if (child_id < 0 || !children.size() || (int(level) > int(T::Level::Bank)) ) {
-    return;
-  }
-  children[child_id]->update_serving_requests(addr, delta, clk);
+    int child_id = addr[int(level) + 1];
+    // We only count the level bank or the level higher than bank
+    if (child_id < 0 || !children.size() || (int(level) > int(T::Level::Bank))) {
+        return;
+    }
+    children[child_id]->update_serving_requests(addr, delta, clk);
 }
 
 } /* namespace ramulator */
