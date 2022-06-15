@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #define MAX_CORE_ID 16
+#define GPIC_SA_NUM 8
 
 // #define DEBUG
 
@@ -21,6 +22,8 @@
 #endif
 
 namespace ramulator {
+
+extern std::ofstream op_trace;
 
 class Config {
 

@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+#define ADVANCED_ROB
+
 namespace ramulator {
 
 class Core;
@@ -22,7 +24,7 @@ public:
     Trace(vector<const char*> trace_fname);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
-    bool get_gpic_request(std::string& req_opcode, int& req_en, long& req_addr, Request::Type& req_type);
+    bool get_gpic_request(long& bubble_cnt, std::string& req_opcode, long& req_value, long& req_addr, long& req_stride, Request::Type& req_type, int& req_vid, int& req_vid_dst);
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     // trace file format 2:
@@ -61,8 +63,10 @@ public:
 
 private:
     bool find_older_stores(long a_s, long a_e, Request::Type& type, int location);
-    bool find_older_unsent(int SRAM_array, int location);
+    bool find_older_unsent(int vid, int vid_dst, int location);
+#ifdef ADVANCED_ROB
     bool check_send(Request& req, int location);
+#endif
     int load = 0;
     int head = 0;
     int tail = 0;
@@ -80,7 +84,8 @@ public:
     long clk = 0;
     long retired = 0;
     int id = 0;
-    function<bool(Request)> send;
+    function<bool(Request)> ls_send;
+    function<bool(Request)> gpic_send;
 
     Core(const Config& configs, int coreid,
         const std::vector<const char*>& trace_fnames,
@@ -116,13 +121,21 @@ private:
     Window window;
     Request request;
 
+    int req_vid = -1;
+    int req_vid_dst = -1;
     long bubble_cnt = -1;
     long req_addr = -1;
-    int req_en = -1;
+    long req_stride = -1;
+    long req_value = -1;
     std::string req_opcode = "NULL";
     Request::Type req_type = Request::Type::MAX;
     bool more_reqs = true;
     long last = 0;
+
+    long VL_reg = GPIC_SA_NUM * 256;
+    long VC_reg = 1;
+    long LS_reg = 0;
+    long SS_reg = 0;
 
     Cache* first_level_cache = nullptr;
 

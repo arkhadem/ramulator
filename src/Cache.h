@@ -7,12 +7,17 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <fstream>
 #include <functional>
+#include <iostream>
 #include <list>
 #include <map>
 #include <math.h>
 #include <memory>
 #include <queue>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #define MAX_GPIC_QUEUE_SIZE 32
 // #define DEBUG_CACHE
@@ -25,16 +30,19 @@ extern int l1_size;
 extern int l1_assoc;
 extern int l1_blocksz;
 extern int l1_mshr_num;
+extern float l1_access_energy;
 
 extern int l2_size;
 extern int l2_assoc;
 extern int l2_blocksz;
 extern int l2_mshr_num;
+extern float l2_access_energy;
 
 extern int l3_size;
 extern int l3_assoc;
 extern int l3_blocksz;
 extern int mshr_per_bank;
+extern float l3_access_energy;
 
 class Cache {
 protected:
@@ -48,9 +56,23 @@ protected:
     ScalarStat cache_mshr_hit;
     ScalarStat cache_mshr_unavailable;
     ScalarStat cache_set_unavailable;
-    ScalarStat GPIC_host_device_cycles;
-    ScalarStat GPIC_compute_cycles;
-    ScalarStat GPIC_memory_cycles;
+    ScalarStat cache_access_energy;
+
+    ScalarStat GPIC_compute_energy[GPIC_SA_NUM];
+    ScalarStat GPIC_compute_comp_energy[GPIC_SA_NUM];
+    ScalarStat GPIC_compute_rdwr_energy[GPIC_SA_NUM];
+    ScalarStat GPIC_compute_total_energy;
+    ScalarStat GPIC_compute_comp_total_energy;
+    ScalarStat GPIC_compute_rdwr_total_energy;
+
+    ScalarStat GPIC_host_device_total_cycles;
+    ScalarStat GPIC_move_stall_total_cycles;
+    ScalarStat GPIC_compute_total_cycles;
+    ScalarStat GPIC_memory_total_cycles;
+    ScalarStat GPIC_host_device_cycles[GPIC_SA_NUM];
+    ScalarStat GPIC_move_stall_cycles[GPIC_SA_NUM];
+    ScalarStat GPIC_compute_cycles[GPIC_SA_NUM];
+    ScalarStat GPIC_memory_cycles[GPIC_SA_NUM];
 
 public:
     enum class Level {
@@ -83,7 +105,7 @@ public:
         }
     };
 
-    Cache(int size, int assoc, int block_size, int mshr_entry_num,
+    Cache(int size, int assoc, int block_size, int mshr_entry_num, float access_energy,
         Level level, std::shared_ptr<CacheSystem> cachesys, int core_id = -1);
 
     void tick();
@@ -105,6 +127,18 @@ public:
 
     function<void(Request&)> processor_callback;
 
+    bool finished();
+
+    int vid_to_sid(int vid, int base);
+
+    bool check_full_queue(Request req);
+
+    bool memory_controller(Request req);
+
+    void instrinsic_decoder(Request req);
+
+    void callbacker(Request& req);
+
 protected:
     int core_id;
     bool is_first_level;
@@ -117,64 +151,37 @@ protected:
     unsigned int index_offset;
     unsigned int tag_offset;
     unsigned int mshr_entry_num;
+    float access_energy;
     long last_id = 0;
     std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
+
+    std::vector<Request> self_retry_list;
+
     std::list<std::pair<long, Request>> retry_list;
 
     std::map<int, std::list<Line>> cache_lines;
 
-    std::map<std::string, long> GPIC_DELAY = {
-        { "_pc_load_b", 8 },
-        { "_pc_load_w", 16 },
-        { "_pc_load_dw", 32 },
-        { "_pc_load_qw", 64 },
-        { "_pc_load_f", 32 },
-        { "_pc_load_df", 64 },
-        { "_pc_load1_b", 8 },
-        { "_pc_load1_w", 16 },
-        { "_pc_load1_dw", 32 },
-        { "_pc_load1_qw", 64 },
-        { "_pc_load1_f", 32 },
-        { "_pc_load1_df", 64 },
-        { "_pc_store_b", 8 },
-        { "_pc_store_w", 16 },
-        { "_pc_store_dw", 32 },
-        { "_pc_store_qw", 64 },
-        { "_pc_store_f", 32 },
-        { "_pc_store_df", 64 },
-        { "_pc_add_b", 8 },
-        { "_pc_add_w", 16 },
-        { "_pc_add_dw", 32 },
-        { "_pc_add_qw", 64 },
-        { "_pc_add_f", 223 },
-        { "_pc_add_df", 902 },
-        { "_pc_mull_b", 42 },
-        { "_pc_mull_w", 152 },
-        { "_pc_mull_dw", 560 },
-        { "_pc_mull_qw", 2144 },
-        { "_pc_mul_f", 346 },
-        { "_pc_mul_df", 1463 },
-        { "_pc_min_b", 32 },
-        { "_pc_min_w", 64 },
-        { "_pc_min_dw", 128 },
-        { "_pc_min_qw", 256 },
-        { "_pc_min_f", 128 },
-        { "_pc_min_df", 256 },
-        { "_pc_max_b", 32 },
-        { "_pc_max_w", 64 },
-        { "_pc_max_dw", 128 },
-        { "_pc_max_qw", 256 },
-        { "_pc_max_f", 128 },
-        { "_pc_max_df", 256 },
-    };
+    std::map<std::string, long> GPIC_COMPUTE_DELAY;
+    std::map<std::string, long> GPIC_ACCESS_DELAY;
+    std::map<std::string, long> DC_COMPUTE_DELAY;
+    std::map<std::string, long> DC_ACCESS_DELAY;
 
-    std::map<Request, int> gpic_op_to_num_mem_op;
+    void init_intrinsic_latency();
 
-    std::vector<std::pair<long, Request>> gpic_instruction_queue;
-    std::vector<std::pair<long, Request>> gpic_compute_queue;
-    long last_gpic_instruction_compute_clk = -1;
-    bool last_gpic_instruction_computed = false;
-    bool last_gpic_instruction_sent = false;
+    std::map<Request, std::vector<long>> gpic_op_to_mem_ops[GPIC_SA_NUM];
+    std::vector<std::pair<long, Request>> gpic_instruction_queue[GPIC_SA_NUM];
+    std::vector<std::pair<long, Request>> gpic_compute_queue[GPIC_SA_NUM];
+    long last_gpic_instruction_compute_clk[GPIC_SA_NUM];
+    bool last_gpic_instruction_computed[GPIC_SA_NUM];
+    bool last_gpic_instruction_sent[GPIC_SA_NUM];
+    std::map<Request, int> gpic_vop_to_num_sop;
+
+    long VL_reg = GPIC_SA_NUM * 256;
+    long VC_reg = 1;
+    long LS_reg = 0;
+    long SS_reg = 0;
+    int V_PER_SA = 1;
+    int SA_PER_V = GPIC_SA_NUM;
 
     int calc_log2(int val)
     {
@@ -328,6 +335,7 @@ public:
     long clk = 0;
     void tick();
     void reset_state();
+    bool finished();
 
     Cache::Level first_level;
     Cache::Level last_level;
