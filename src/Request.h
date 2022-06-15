@@ -58,12 +58,14 @@ public:
 
     std::string opcode;
     int en = 0;
+    int SA_id = 0;
+    int SA_id_dst = 0;
 
     long arrive = -1;
     long depart = -1;
     function<void(Request&)> callback; // call back with more info
 
-    Request(std::string& opcode, int en, long addr, long addr_end, function<void(Request&)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
+    Request(std::string& opcode, int en, long addr, long addr_end, int SA_id, int SA_id_dst, function<void(Request&)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
         : is_first_command(true)
         , addr(addr)
         , addr_end(addr_end)
@@ -72,8 +74,11 @@ public:
         , type(Type::GPIC)
         , opcode(opcode)
         , en(en)
+        , SA_id(SA_id)
+        , SA_id_dst(SA_id_dst)
         , callback(callback)
     {
+        // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
@@ -86,6 +91,7 @@ public:
         , type(type)
         , callback([](Request& req) {})
     {
+        // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
@@ -98,6 +104,7 @@ public:
         , type(type)
         , callback(callback)
     {
+        // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
@@ -109,6 +116,7 @@ public:
         , type(type)
         , callback(callback)
     {
+        // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
@@ -120,12 +128,13 @@ public:
         , unitid(unitid)
         , type(Request::Type::MAX)
     {
+        // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
     friend bool operator==(const Request& req1, const Request& req2)
     {
-        if ((req1.coreid == req2.coreid) && (req1.unitid == req2.unitid) && (req1.reqid == req2.reqid)) {
+        if ((req1.coreid == req2.coreid) && (req1.unitid == req2.unitid) && (req1.reqid == req2.reqid) && (req1.SA_id == req2.SA_id) && (req1.SA_id_dst == req2.SA_id_dst)) {
             assert(req1.addr == req2.addr);
             assert(req1.addr_end == req2.addr_end);
             assert(req1.type == req2.type);
@@ -155,19 +164,24 @@ public:
     const char* c_str()
     {
         std::stringstream req_stream;
-        char* name = new char[100];
+        char* name = new char[128];
 
         if (type == Type::GPIC) {
             if (addr != -1)
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << ")]";
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), en(" << en << "), addr(0x" << std::hex << addr << "), SA(" << SA_id << ")]";
+            else if (SA_id_dst == -1)
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), en(" << en << "), SA(" << SA_id << ")]";
             else
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), en(" << en << ")]";
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), en(" << en << "), SA src(" << SA_id << "), SA dst(" << SA_id_dst << ")]";
+
         } else if (type == Type::READ) {
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(READ), addr(0x" << std::hex << addr << ")]";
         } else if (type == Type::WRITE) {
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(WRITE), addr(0x" << std::hex << addr << ")]";
         } else if (type == Type::INITIALIZED) {
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(INITIALIZED)]";
+        } else if (type == Type::MAX) {
+            req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(BUBBLE)]";
         } else {
             assert(false);
         }

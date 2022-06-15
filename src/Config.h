@@ -22,6 +22,8 @@
 
 namespace ramulator {
 
+extern std::ofstream op_trace;
+
 class Config {
 
 private:
