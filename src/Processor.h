@@ -6,15 +6,14 @@
 #include "Memory.h"
 #include "Request.h"
 #include "Statistics.h"
-#include <iostream>
-#include <vector>
-#include <fstream>
-#include <string>
 #include <ctype.h>
+#include <fstream>
 #include <functional>
+#include <iostream>
+#include <string>
+#include <vector>
 
-namespace ramulator 
-{
+namespace ramulator {
 
 class Trace {
 public:
@@ -26,6 +25,7 @@ public:
     // trace file format 2:
     // [address(hex)] [R/W]
     bool get_dramtrace_request(long& req_addr, Request::Type& req_type);
+    bool get_timedtrace_request(long& req_addr, Request::Type& req_type, long& req_clock);
 
     long expected_limit_insts = 0;
 
@@ -34,13 +34,16 @@ private:
     std::string trace_name;
 };
 
-
 class Window {
 public:
     int ipc = 4;
     int depth = 128;
 
-    Window() : ready_list(depth), addr_list(depth, -1) {}
+    Window()
+        : ready_list(depth)
+        , addr_list(depth, -1)
+    {
+    }
     bool is_full();
     bool is_empty();
     void insert(bool ready, long addr);
@@ -54,7 +57,6 @@ private:
     std::vector<bool> ready_list;
     std::vector<long> addr_list;
 };
-
 
 class Core {
 public:

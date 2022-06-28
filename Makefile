@@ -9,7 +9,13 @@ OBJS := $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(SRCS))
 #   g++ 4.x due to an internal compiler error when processing lambda functions.
 CXX := clang++
 # CXX := g++-5
-CXXFLAGS := -O3 -std=c++11 -g -Wall
+UNAME_S := $(shell uname -s)
+CXXFLAGS := -O3 -std=c++11 -Wall
+ifeq ($(UNAME_S),Linux)
+	CXXFLAGS += -Wno-unused-lambda-capture -Wno-delete-non-virtual-dtor
+else ifeq ($(UNAME_S),Darwin)
+	CXXFLAGS += -Wno-unused-lambda-capture -Wno-delete-non-abstract-non-virtual-dtor
+endif
 
 .PHONY: all clean depend
 
