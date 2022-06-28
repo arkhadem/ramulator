@@ -37,41 +37,14 @@ using namespace ramulator;
 
 bool ramulator::warmup_complete = false;
 
-ScalarStat ramulator::total_batches;
-ScalarStat ramulator::total_requests;
-ScalarStat ramulator::late_batches;
-ScalarStat ramulator::total_late_cycles;
-ScalarStat ramulator::average_late_cycles;
-
 template <typename T>
 void run_timedtrace(const Config& configs, Memory<T, Controller>& memory, const char* tracename)
 {
-    ramulator::total_batches
-        .name("total_batches")
-        .desc("Total number of batches sent to the memory.")
-        .precision(0);
-    ramulator::total_requests
-        .name("total_requests")
-        .desc("Total number of requests sent to the memory.")
-        .precision(0);
-    ramulator::late_batches
-        .name("late_batches")
-        .desc("Number of batches sent late.")
-        .precision(0);
-    ramulator::total_late_cycles
-        .name("total_late_cycles")
-        .desc("Total number of stall cycles due to full req queue.")
-        .precision(0);
-    ramulator::average_late_cycles
-        .name("average_late_cycles")
-        .desc("Average number of stall cycles due to full req queue.")
-        .precision(6);
-
-    long total_batches_s = 0;
-    long total_requests_s = 0;
-    long late_batches_s = 0;
-    long total_late_cycles_s = 0;
-    float average_late_cycles_s = 0;
+    long total_batches = 0;
+    long total_requests = 0;
+    long late_batches = 0;
+    long total_late_cycles = 0;
+    float average_late_cycles = 0;
 
     /* initialize DRAM trace */
     Trace trace(tracename);
@@ -105,8 +78,8 @@ void run_timedtrace(const Config& configs, Memory<T, Controller>& memory, const 
                 }
                 if (clks != 0) {
                     if (clks - last_total_clocks > total_allowed_clocks) {
-                        late_batches_s++;
-                        total_late_cycles_s += clks - last_total_clocks - total_allowed_clocks;
+                        late_batches++;
+                        total_late_cycles += clks - last_total_clocks - total_allowed_clocks;
                         printf("[%d] batch completed in %ld - %ld = %ld late clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks, clks - last_total_clocks - total_allowed_clocks);
                     } else {
                         printf("[%d] batch completed successfully in %ld < %ld clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks);
@@ -114,23 +87,23 @@ void run_timedtrace(const Config& configs, Memory<T, Controller>& memory, const 
                 }
                 last_total_clocks = clks;
                 total_allowed_clocks = req_clock;
-                total_batches_s++;
+                total_batches++;
                 printf("[%d] new batch started. Expected latency: %ld clock cycles!\n", clks, total_allowed_clocks);
             } else {
                 stall = !memory.send(req);
                 if (!stall) {
-                    printf("[%d] req sent\n", clks);
+                    // printf("[%d] req sent\n", clks);
                     if (req.type == Request::Type::READ)
                         reads++;
                     else if (req.type == Request::Type::WRITE)
                         writes++;
-                    total_requests_s++;
+                    total_requests++;
                 } else {
-                    printf("[%d] req stalled\n", clks);
+                    // printf("[%d] req stalled\n", clks);
                 }
             }
         } else {
-            printf("[%d] waiting for memory\n", clks);
+            // printf("[%d] waiting for memory\n", clks);
             memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
                                                     // write queue are drained
         }
@@ -142,17 +115,24 @@ void run_timedtrace(const Config& configs, Memory<T, Controller>& memory, const 
 
     // Checking the last batch
     if (clks - last_total_clocks > total_allowed_clocks) {
-        late_batches_s++;
-        total_late_cycles_s += clks - last_total_clocks - total_allowed_clocks;
+        late_batches++;
+        total_late_cycles += clks - last_total_clocks - total_allowed_clocks;
         printf("[%d] batch completed in %ld - %ld = %ld late clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks, clks - last_total_clocks - total_allowed_clocks);
     } else {
         printf("[%d] batch completed successfully in %ld < %ld clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks);
     }
 
     // This a workaround for statistics set only initially lost in the end
-    average_late_cycles_s = (float)total_late_cycles_s / (float)total_batches_s;
+    average_late_cycles = (float)total_late_cycles / (float)total_batches;
     memory.finish();
     Stats::statlist.printall();
+
+    printf("Total batches: %ld\n", total_batches);
+    printf("Total requests: %ld\n", total_requests);
+    printf("Total cycles: %d\n", clks);
+    printf("Total late batches: %ld\n", late_batches);
+    printf("Total late cycles: %ld\n", total_late_cycles);
+    printf("Average late cycles per batches: %f\n", average_late_cycles);
 }
 
 template <typename T>

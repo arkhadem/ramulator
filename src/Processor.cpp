@@ -514,14 +514,14 @@ bool Trace::get_timedtrace_request(long& req_addr, Request::Type& req_type, long
     if (req_type == Request::Type::MAX) {
         req_clock = std::stol(line, &pos, 10);
 
-        printf("returned type: COMPUTE, clock: %ld\n", req_clock);
+        // printf("returned type: COMPUTE, clock: %ld\n", req_clock);
     } else {
         req_addr = std::stoul(line, &pos, 16);
         pos = line.find_first_not_of(' ', pos);
         line = line.substr(pos);
         req_clock = std::stol(line, &pos, 10);
 
-        printf("returned addr: 0x%lx, type: %s, clock: %ld\n", req_addr, req_type == Request::Type::READ ? "READ" : "WRITE", req_clock);
+        // printf("returned addr: 0x%lx, type: %s, clock: %ld\n", req_addr, req_type == Request::Type::READ ? "READ" : "WRITE", req_clock);
     }
 
     return true;

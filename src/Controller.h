@@ -25,11 +25,6 @@ using namespace std;
 namespace ramulator {
 
 extern bool warmup_complete;
-extern ScalarStat total_batches;
-extern ScalarStat total_requests;
-extern ScalarStat late_batches;
-extern ScalarStat total_late_cycles;
-extern ScalarStat average_late_cycles;
 
 template <typename T>
 class Controller {
