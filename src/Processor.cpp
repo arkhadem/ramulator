@@ -387,6 +387,7 @@ Trace::Trace(const char* trace_fname)
     : file(trace_fname)
     , trace_name(trace_fname)
 {
+    finished = false;
     if (!file.good()) {
         std::cerr << "Bad trace file: " << trace_fname << std::endl;
         exit(1);
@@ -489,11 +490,16 @@ bool Trace::get_timedtrace_request(long& req_addr, Request::Type& req_type, long
     string line;
     size_t pos;
 
+    if (finished)
+        return false;
+
     while (true) {
         getline(file, line);
         if (file.eof()) {
+            finished = true;
             return false;
         }
+        // printf("Getting Line %s\n", line.c_str());
 
         pos = line.find(' ');
         if (pos != string::npos) {
@@ -513,7 +519,9 @@ bool Trace::get_timedtrace_request(long& req_addr, Request::Type& req_type, long
     line = line.substr(pos);
     if (req_type == Request::Type::MAX) {
         req_clock = std::stol(line, &pos, 10);
-
+        pos = line.find_first_not_of(' ', pos);
+        line = line.substr(pos);
+        req_addr = std::stol(line, &pos, 10);
         // printf("returned type: COMPUTE, clock: %ld\n", req_clock);
     } else {
         req_addr = std::stoul(line, &pos, 16);

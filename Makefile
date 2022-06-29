@@ -10,7 +10,7 @@ OBJS := $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(SRCS))
 CXX := clang++
 # CXX := g++-5
 UNAME_S := $(shell uname -s)
-CXXFLAGS := -O3 -std=c++11 -Wall
+CXXFLAGS := -O3 -std=c++11 -Wall -g
 ifeq ($(UNAME_S),Linux)
 	CXXFLAGS += -Wno-unused-lambda-capture -Wno-delete-non-virtual-dtor
 else ifeq ($(UNAME_S),Darwin)

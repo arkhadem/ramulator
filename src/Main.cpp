@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Controller.h"
 #include "DRAM.h"
+#include "Engine.h"
 #include "Memory.h"
 #include "Processor.h"
 #include "SpeedyController.h"
@@ -40,99 +41,82 @@ bool ramulator::warmup_complete = false;
 template <typename T>
 void run_timedtrace(const Config& configs, Memory<T, Controller>& memory, const char* tracename)
 {
-    long total_batches = 0;
-    long total_requests = 0;
-    long late_batches = 0;
-    long total_late_cycles = 0;
-    float average_late_cycles = 0;
-
     /* initialize DRAM trace */
     Trace trace(tracename);
 
+    int engine_num = configs.get_core_num();
+
+    printf("Running trace with %d engines\n", engine_num);
+
     /* run simulation */
-    bool stall = false, end = false;
-    int reads = 0, writes = 0, clks = 0;
-    long req_addr = 0;
-    Request::Type req_type = Request::Type::READ;
-    long req_clock = 0, total_allowed_clocks = 0, last_total_clocks = 0;
-    map<int, int> latencies;
-    auto read_complete = [&latencies](Request& r) { latencies[r.depart - r.arrive]++; };
+    // Engine* engines = (Engine*)malloc(sizeof(Engine) * engine_num);
+    Engine* engines = new Engine[engine_num];
+    for (int i = 0; i < engine_num; i++) {
+        engines[i].reset(i, &trace, &memory);
+    }
 
-    Request req(req_addr, req_type, read_complete);
-
-    while (!end || memory.pending_requests()) {
-        if (!end && !stall) {
-            end = !trace.get_timedtrace_request(req_addr, req_type, req_clock);
-            req.addr = req_addr;
-            req.type = req_type;
+    bool finished = false;
+    long clks = 0;
+    int i;
+    int i_base = 0;
+    while (finished == false) {
+        for (int i_offset = 0; i_offset < engine_num; i_offset++) {
+            i = (i_base + i_offset) % engine_num;
+            engines[i].tick();
         }
-
-        if (!end) {
-            if (req_type == Request::Type::MAX) {
-                // Waiting for memory requests to finish
-                while (memory.pending_requests()) {
-                    if (clks % CPU_TO_DRAM_CLK_RATIO == 0)
-                        memory.tick();
-                    clks++;
-                    Stats::curTick++;
-                }
-                if (clks != 0) {
-                    if (clks - last_total_clocks > total_allowed_clocks) {
-                        late_batches++;
-                        total_late_cycles += clks - last_total_clocks - total_allowed_clocks;
-                        printf("[%d] batch completed in %ld - %ld = %ld late clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks, clks - last_total_clocks - total_allowed_clocks);
-                    } else {
-                        printf("[%d] batch completed successfully in %ld < %ld clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks);
-                    }
-                }
-                last_total_clocks = clks;
-                total_allowed_clocks = req_clock;
-                total_batches++;
-                printf("[%d] new batch started. Expected latency: %ld clock cycles!\n", clks, total_allowed_clocks);
-            } else {
-                stall = !memory.send(req);
-                if (!stall) {
-                    // printf("[%d] req sent\n", clks);
-                    if (req.type == Request::Type::READ)
-                        reads++;
-                    else if (req.type == Request::Type::WRITE)
-                        writes++;
-                    total_requests++;
-                } else {
-                    // printf("[%d] req stalled\n", clks);
-                }
-            }
-        } else {
-            // printf("[%d] waiting for memory\n", clks);
-            memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
-                                                    // write queue are drained
-        }
+        i_base = (i_base + 1) % engine_num;
         if (clks % CPU_TO_DRAM_CLK_RATIO == 0)
             memory.tick();
         clks++;
-        Stats::curTick++; // memory clock, global, for Statistics
+        if (clks % 1000000 == 0) {
+#ifndef DEBUG
+            printf("\33[2K\r");
+#endif
+            printf("%ldM cycles!", clks / 1000000);
+#ifdef DEBUG
+            printf("\n");
+#else
+            fflush(stdout);
+#endif
+        }
+        Stats::curTick++;
+        finished = true;
+        for (int i = 0; i < engine_num; i++) {
+            if (engines[i].finished() == false) {
+                finished = false;
+                break;
+            }
+        }
     }
+    printf("\n\nfinished simulation!\n\n");
 
-    // Checking the last batch
-    if (clks - last_total_clocks > total_allowed_clocks) {
-        late_batches++;
-        total_late_cycles += clks - last_total_clocks - total_allowed_clocks;
-        printf("[%d] batch completed in %ld - %ld = %ld late clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks, clks - last_total_clocks - total_allowed_clocks);
-    } else {
-        printf("[%d] batch completed successfully in %ld < %ld clock cycles!\n", clks, clks - last_total_clocks, total_allowed_clocks);
-    }
+    assert(memory.pending_requests() == 0);
 
     // This a workaround for statistics set only initially lost in the end
-    average_late_cycles = (float)total_late_cycles / (float)total_batches;
     memory.finish();
     Stats::statlist.printall();
 
-    printf("Total batches: %ld\n", total_batches);
-    printf("Total requests: %ld\n", total_requests);
-    printf("Total cycles: %d\n", clks);
-    printf("Total late batches: %ld\n", late_batches);
-    printf("Total late cycles: %ld\n", total_late_cycles);
-    printf("Average late cycles per batches: %f\n", average_late_cycles);
+    BatchStat total_batchstat;
+    BatchStat max_batchstat;
+
+    for (int i = 0; i < engine_num; i++) {
+        total_batchstat = total_batchstat + engines[i].get_batchstat();
+        max_batchstat = max_batchstat - engines[i].get_batchstat();
+    }
+
+    printf("Total:\n");
+    printf("\t batches: %ld\n", total_batchstat.total_batches);
+    printf("\t requests: %ld\n", total_batchstat.total_requests);
+    printf("\t cycles: %ld\n", total_batchstat.total_cycles);
+    printf("\t late batches: %ld\n", total_batchstat.late_batches);
+    printf("\t late cycles: %ld\n", total_batchstat.total_late_cycles);
+
+    printf("Max:\n");
+    printf("\t batches: %ld\n", max_batchstat.total_batches);
+    printf("\t requests: %ld\n", max_batchstat.total_requests);
+    printf("\t cycles: %ld\n", max_batchstat.total_cycles);
+    printf("\t late batches: %ld\n", max_batchstat.late_batches);
+    printf("\t late cycles: %ld\n", max_batchstat.total_late_cycles);
 }
 
 template <typename T>
@@ -306,6 +290,20 @@ int main(int argc, const char* argv[])
     }
 
     int trace_start = 3;
+
+    int engine_num = 0;
+    const char* engine_num_str = strstr(argv[trace_start], "--engine=");
+    if (engine_num_str != nullptr) {
+        engine_num_str = strstr(argv[trace_start], "=");
+        engine_num_str++;
+        engine_num = stoi(engine_num_str);
+        if (engine_num < 1 || engine_num > 16) {
+            printf("engine num must be >= 1 and <= 16\n");
+            assert(false);
+        }
+        trace_start++;
+    }
+
     string stats_out;
     if (strcmp(argv[trace_start], "--stats") == 0) {
         Stats::statlist.output(argv[trace_start + 1]);
@@ -325,7 +323,11 @@ int main(int argc, const char* argv[])
     }
 
     std::vector<const char*> files(&argv[trace_start], &argv[argc]);
-    configs.set_core_num(argc - trace_start);
+    if (engine_num != 0) {
+        configs.set_core_num(engine_num);
+    } else {
+        configs.set_core_num(argc - trace_start);
+    }
 
     if (standard == "DDR3") {
         DDR3* ddr3 = new DDR3(configs["org"], configs["speed"]);

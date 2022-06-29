@@ -32,6 +32,7 @@ public:
 private:
     std::ifstream file;
     std::string trace_name;
+    bool finished;
 };
 
 class Window {
