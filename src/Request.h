@@ -207,7 +207,7 @@ public:
         return false;
     }
 
-    const char* c_str()
+    const char* c_str() const
     {
         std::stringstream req_stream;
         char* name = new char[1024];

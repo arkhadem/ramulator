@@ -137,6 +137,8 @@ public:
 
     void instrinsic_decoder(Request req);
 
+    void random_access_decoder(Request req);
+
     void callbacker(Request& req);
 
 protected:
@@ -169,6 +171,7 @@ protected:
     void init_intrinsic_latency();
 
     std::map<Request, std::vector<long>> gpic_op_to_mem_ops[GPIC_SA_NUM];
+    std::map<Request, std::vector<long>> gpic_random_to_mem_ops;
     std::vector<std::pair<long, Request>> gpic_instruction_queue[GPIC_SA_NUM];
     std::vector<std::pair<long, Request>> gpic_compute_queue[GPIC_SA_NUM];
     long last_gpic_instruction_compute_clk[GPIC_SA_NUM];

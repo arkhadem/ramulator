@@ -24,7 +24,7 @@ public:
     Trace(vector<const char*> trace_fname);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
-    bool get_gpic_request(long& bubble_cnt, std::string& req_opcode, long& req_value, long& req_addr, long& req_stride, Request::Type& req_type, int& req_vid, int& req_vid_dst);
+    bool get_gpic_request(long& bubble_cnt, std::string& req_opcode, long& req_value, long& req_addr, std::vector<long>& req_addr_starts, long& req_stride, Request::Type& req_type, int& req_vid, int& req_vid_dst);
     bool get_unfiltered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     bool get_filtered_request(long& bubble_cnt, long& req_addr, Request::Type& req_type);
     // trace file format 2:
@@ -62,7 +62,8 @@ public:
     void reset_state();
 
 private:
-    bool find_older_stores(long a_s, long a_e, Request::Type& type, int location);
+    bool find_older_stores(long a_s, long a_e, Request::Type &type, int location);
+    bool find_any_older_stores(int location, Request::Type type);
     bool find_older_unsent(int vid, int vid_dst, int location);
 #ifdef ADVANCED_ROB
     bool check_send(Request& req, int location);
@@ -100,7 +101,8 @@ public:
     bool has_reached_limit();
     long get_insts(); // the number of the instructions issued to the core
     bool is_warmed_up();
-    function<void(Request&)> callback;
+    function<void(Request &)> callback;
+    bool has_retired();
 
     bool no_core_caches = true;
     bool no_shared_cache = true;
@@ -125,6 +127,8 @@ private:
     int req_vid_dst = -1;
     long bubble_cnt = -1;
     long req_addr = -1;
+    std::vector<long> req_addr_starts;
+    std::vector<long> req_addr_ends;
     long req_stride = -1;
     long req_value = -1;
     std::string req_opcode = "NULL";
@@ -136,6 +140,8 @@ private:
     long VC_reg = 1;
     long LS_reg = 0;
     long SS_reg = 0;
+
+    bool did_retired;
 
     Cache* first_level_cache = nullptr;
 

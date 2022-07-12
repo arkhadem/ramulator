@@ -352,6 +352,32 @@ void Cache::instrinsic_decoder(Request req)
     }
 }
 
+void Cache::random_access_decoder(Request req) {
+	// Accessing memory to load random load/store addresses
+	assert(gpic_random_to_mem_ops.count(req) == 0);
+	gpic_random_to_mem_ops[req] = std::vector<long>();
+	long lower_cache_line = align(req.addr);
+	long upper_cache_line = align(req.addr + (VC_reg * 8) - 1);
+	int access_needed = (long)(std::ceil((float)(upper_cache_line - lower_cache_line) / (float)(block_size))) + 1;
+	long req_addr = lower_cache_line;
+	Request::Type req_type = Request::Type::READ;
+	for (int i = 0; i < access_needed; i++) {
+		int req_coreid = req.coreid;
+		Request::UnitID req_unitid = (Request::UnitID)(level);
+		Request mem_req(req_addr, req_type, processor_callback, req_coreid, req_unitid);
+		mem_req.reqid = last_id;
+		last_id++;
+		gpic_random_to_mem_ops[req].push_back(req_addr);
+		req_addr += block_size;
+
+		// send it
+		hint("10- %s sending %s to %s\n", level_string.c_str(), mem_req.c_str(), level_string.c_str());
+		if (send(mem_req) == false) {
+			self_retry_list.push_back(mem_req);
+		}
+	}
+}
+
 bool Cache::memory_controller(Request req)
 {
     if (req.opcode.find("_set_") != string::npos) {
@@ -399,7 +425,14 @@ bool Cache::memory_controller(Request req)
         if (check_full_queue(req) == false)
             return false;
 
-        instrinsic_decoder(req);
+        if ((req.opcode.find("loadr") != string::npos) ||
+            (req.opcode.find("loadr") != string::npos) ||
+            (req.opcode.find("loadr") != string::npos)) {
+            random_access_decoder(req);
+        } else {
+            instrinsic_decoder(req);
+        }
+        
     }
     return true;
 }
@@ -700,13 +733,31 @@ void Cache::callback(Request& req)
 
     if (MSHR_it != mshr_entries.end()) {
         MSHR_it->second->lock = false;
-        auto first = MSHR_it->first;
-        auto second = MSHR_it->second;
-        hint("pair(0x%lx, line(0x%lx, %d, %d, 0x%lx)) removed from mshr entries at level %s\n", first, second->addr, second->dirty, second->lock, second->tag, level_string.c_str());
+        hint("pair(0x%lx, line(0x%lx, %d, %d, 0x%lx)) removed from mshr entries at level %s\n", MSHR_it->first, MSHR_it->second->addr, MSHR_it->second->dirty, MSHR_it->second->lock, MSHR_it->second->tag, level_string.c_str());
         mshr_entries.erase(MSHR_it);
     } else {
         hint("NO MSHR entry removed at %s\n", level_string.c_str());
     }
+
+    // Remove corresponding random load/store addresses
+    for (auto it = gpic_random_to_mem_ops.begin(); it != gpic_random_to_mem_ops.end(); ) {
+      	for (int mem_idx = 0; mem_idx < it->second.size(); mem_idx++) {
+            if (align(req.addr) == align(it->second[mem_idx])) {
+                hint("%s: %s calls back for %s, %lu instructions remained\n", level_string.c_str(), req.c_str(), it->first.c_str(), it->second.size() - 1);
+
+                // Remove this instruction from awaiting random accesses
+                it->second.erase(it->second.begin() + mem_idx);
+            }
+        }
+        if (it->second.size() == 0) {
+            hint("%s: decoding %s\n", level_string.c_str(), it->first.c_str());
+            instrinsic_decoder(it->first);
+            it = gpic_random_to_mem_ops.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
 
     // Remove corresponding GPIC instructions
     for (int sid = 0; sid < GPIC_SA_NUM; sid++) {
@@ -735,7 +786,7 @@ void Cache::callback(Request& req)
             }
             if (gpic_op_to_mem_ops[sid][gpic_req].size() == 0) {
                 op_trace << cachesys->clk << " " << sid << " F " << gpic_req.opcode << endl;
-                hint("%s: calling back %s\n", level_string.c_str(), gpic_req.c_str());
+                hint("18- %s: calling back %s\n", level_string.c_str(), gpic_req.c_str());
                 callbacker(gpic_req);
                 gpic_op_to_mem_ops[sid].erase(gpic_req);
                 gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
@@ -759,7 +810,7 @@ void Cache::callbacker(Request& req)
     assert(gpic_vop_to_num_sop[req] > 0);
     gpic_vop_to_num_sop[req] -= 1;
     if (gpic_vop_to_num_sop[req] == 0) {
-        hint("Calling back %s to core\n", req.c_str());
+        hint("19- Calling back %s to core\n", req.c_str());
         req.callback(req);
     }
 }
@@ -845,17 +896,21 @@ void Cache::tick()
                     assert(gpic_op_to_mem_ops[sid].count(req) == 0);
                     gpic_op_to_mem_ops[sid][req] = std::vector<long>();
                     for (int idx = 0; idx < req.addr_starts.size(); idx++) {
+                        if (req.addr_starts[idx] == 0) {
+                            hint("13- %s ignored one zero-addressed memory access for %s\n", level_string.c_str(), req.c_str());
+                            continue;
+                        }
                         long lower_cache_line = align(req.addr_starts[idx]);
                         long upper_cache_line = align(req.addr_ends[idx]);
                         int access_needed = (long)(std::ceil((float)(upper_cache_line - lower_cache_line) / (float)(block_size))) + 1;
-                        hint("10- %s unpacking %d instructions for %s\n", level_string.c_str(), access_needed, req.c_str());
+                        hint("13- %s unpacking %d instructions for %s\n", level_string.c_str(), access_needed, req.c_str());
                         assert(access_needed > 0);
                         long req_addr = lower_cache_line;
                         for (int i = 0; i < access_needed; i++) {
 
                             // Check if this memory access has happenned before
                             if (std::count(gpic_op_to_mem_ops[sid][req].begin(), gpic_op_to_mem_ops[sid][req].end(), req_addr)) {
-                                hint("10- %s NOT sending 0x%lx to %s\n", level_string.c_str(), req_addr, level_string.c_str());
+                                hint("14- %s NOT sending 0x%lx to %s\n", level_string.c_str(), req_addr, level_string.c_str());
                             } else {
                                 // make the request
                                 Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
@@ -865,22 +920,33 @@ void Cache::tick()
                                 mem_req.reqid = last_id;
                                 last_id++;
                                 gpic_op_to_mem_ops[sid][req].push_back(req_addr);
-                                req_addr += block_size;
 
                                 // send it
-                                hint("10- %s sending %s to %s\n", level_string.c_str(), mem_req.c_str(), level_string.c_str());
+                                hint("15- %s sending %s to %s\n", level_string.c_str(), mem_req.c_str(), level_string.c_str());
                                 if (send(mem_req) == false) {
                                     self_retry_list.push_back(mem_req);
                                 }
                             }
+                            req_addr += block_size;
                         }
                     }
                     last_gpic_instruction_sent[sid] = true;
+
+                    if (gpic_op_to_mem_ops[sid][req].size() == 0) {
+                        op_trace << cachesys->clk << " " << sid << " F " << req.opcode << endl;
+                        hint("17- %s: calling back %s\n", level_string.c_str(), req.c_str());
+                        callbacker(req);
+                        gpic_op_to_mem_ops[sid].erase(req);
+                        gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
+                        last_gpic_instruction_compute_clk[sid] = -1;
+                        last_gpic_instruction_computed[sid] = false;
+                        last_gpic_instruction_sent[sid] = false;
+                    }
                 } else {
                     // Otherwise, we are ready to send the call back
                     op_trace << cachesys->clk << " " << sid << " F " << req.opcode << endl;
 
-                    hint("10- %s instruction %s completed\n", level_string.c_str(), req.c_str());
+                    hint("16- %s instruction %s completed\n", level_string.c_str(), req.c_str());
                     callbacker(req);
                     gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
                     last_gpic_instruction_compute_clk[sid] = -1;
@@ -991,7 +1057,11 @@ bool Cache::finished()
     if (retry_list.size() != 0)
         return false;
     if (self_retry_list.size() != 0)
-        return false;
+    	return false;
+    
+    if (gpic_random_to_mem_ops.size() != 0)
+    	return false;
+    
     for (int sid = 0; sid < GPIC_SA_NUM; sid++) {
         if (gpic_op_to_mem_ops[sid].size() != 0)
             return false;
@@ -1030,6 +1100,7 @@ void Cache::reset_state()
     GPIC_compute_total_energy = 0;
     GPIC_compute_comp_total_energy = 0;
     GPIC_compute_rdwr_total_energy = 0;
+	assert(gpic_random_to_mem_ops.size() == 0);
     for (int sid = 0; sid < GPIC_SA_NUM; sid++) {
         GPIC_host_device_cycles[sid] = 0;
         GPIC_move_stall_cycles[sid] = 0;
@@ -1041,6 +1112,7 @@ void Cache::reset_state()
         last_gpic_instruction_computed[sid] = false;
         last_gpic_instruction_sent[sid] = false;
         assert(gpic_op_to_mem_ops[sid].size() == 0);
+        
         for (int i = 0; i < gpic_instruction_queue[sid].size(); i++) {
             printf("ERROR: %s remained in gpic instruction queue %s\n", gpic_instruction_queue[sid].at(0).second.c_str(), level_string.c_str());
         }
