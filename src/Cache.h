@@ -17,6 +17,7 @@
 #include <queue>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #define MAX_GPIC_QUEUE_SIZE 32
@@ -26,23 +27,14 @@ namespace ramulator {
 class CacheSystem;
 
 // These variables are set in Main.cpp
-extern int l1_size;
-extern int l1_assoc;
-extern int l1_blocksz;
-extern int l1_mshr_num;
-extern float l1_access_energy;
-
-extern int l2_size;
-extern int l2_assoc;
-extern int l2_blocksz;
-extern int l2_mshr_num;
-extern float l2_access_energy;
+extern std::map<core_type_t, core_config_t> core_configs;
 
 extern int l3_size;
 extern int l3_assoc;
 extern int l3_blocksz;
 extern int mshr_per_bank;
 extern float l3_access_energy;
+extern int l3_gpic_core_num;
 
 class Cache {
 protected:
@@ -58,9 +50,9 @@ protected:
     ScalarStat cache_set_unavailable;
     ScalarStat cache_access_energy;
 
-    ScalarStat GPIC_compute_energy[GPIC_SA_NUM];
-    ScalarStat GPIC_compute_comp_energy[GPIC_SA_NUM];
-    ScalarStat GPIC_compute_rdwr_energy[GPIC_SA_NUM];
+    ScalarStat *GPIC_compute_energy;
+    ScalarStat *GPIC_compute_comp_energy;
+    ScalarStat *GPIC_compute_rdwr_energy;
     ScalarStat GPIC_compute_total_energy;
     ScalarStat GPIC_compute_comp_total_energy;
     ScalarStat GPIC_compute_rdwr_total_energy;
@@ -69,10 +61,10 @@ protected:
     ScalarStat GPIC_move_stall_total_cycles;
     ScalarStat GPIC_compute_total_cycles;
     ScalarStat GPIC_memory_total_cycles;
-    ScalarStat GPIC_host_device_cycles[GPIC_SA_NUM];
-    ScalarStat GPIC_move_stall_cycles[GPIC_SA_NUM];
-    ScalarStat GPIC_compute_cycles[GPIC_SA_NUM];
-    ScalarStat GPIC_memory_cycles[GPIC_SA_NUM];
+    ScalarStat *GPIC_host_device_cycles;
+    ScalarStat *GPIC_move_stall_cycles;
+    ScalarStat *GPIC_compute_cycles;
+    ScalarStat *GPIC_memory_cycles;
 
 public:
     enum class Level {
@@ -90,42 +82,34 @@ public:
         bool lock; // When the lock is on, the value is not valid yet.
         bool dirty;
         Line(long addr, long tag)
-            : addr(addr)
-            , tag(tag)
-            , lock(true)
-            , dirty(false)
-        {
+            : addr(addr), tag(tag), lock(true), dirty(false) {
         }
         Line(long addr, long tag, bool lock, bool dirty)
-            : addr(addr)
-            , tag(tag)
-            , lock(lock)
-            , dirty(dirty)
-        {
+            : addr(addr), tag(tag), lock(lock), dirty(dirty) {
         }
     };
 
     Cache(int size, int assoc, int block_size, int mshr_entry_num, float access_energy,
-        Level level, std::shared_ptr<CacheSystem> cachesys, int core_id = -1);
+          Level level, std::shared_ptr<CacheSystem> cachesys, int gpic_core_num, int core_id = -1);
 
     void tick();
     void reset_state();
 
     // L1, L2, L3 accumulated latencies
-    int latency_each[int(Level::MAX)] = { 0, 4, 12, 31 };
+    int latency_each[int(Level::MAX)] = {0, 4, 12, 31};
 
     std::shared_ptr<CacheSystem> cachesys;
     // LLC has multiple higher caches
-    std::vector<Cache*> higher_cache;
-    Cache* lower_cache;
+    std::vector<Cache *> higher_cache;
+    Cache *lower_cache;
 
     bool send(Request req);
 
-    void concatlower(Cache* lower);
+    void concatlower(Cache *lower);
 
-    void callback(Request& req);
+    void callback(Request &req);
 
-    function<void(Request&)> processor_callback;
+    function<void(Request &)> processor_callback;
 
     bool finished();
 
@@ -137,9 +121,16 @@ public:
 
     void instrinsic_decoder(Request req);
 
+    int stride_evaluator(long rstride, bool load);
+
     void random_access_decoder(Request req);
 
-    void callbacker(Request& req);
+    void callbacker(Request &req);
+
+    bool vector_masked(int vid);
+
+    // Check whether this addr is hit and fill in the pos_ptr with the iterator to the hit line or lines.end()
+    bool is_hit(std::list<Line> &lines, long addr, std::list<Line>::iterator *pos_ptr);
 
 protected:
     int core_id;
@@ -155,6 +146,8 @@ protected:
     unsigned int mshr_entry_num;
     float access_energy;
     long last_id = 0;
+    int gpic_core_num;
+
     std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
 
     std::vector<Request> self_retry_list;
@@ -170,43 +163,41 @@ protected:
 
     void init_intrinsic_latency();
 
-    std::map<Request, std::vector<long>> gpic_op_to_mem_ops[GPIC_SA_NUM];
+    std::map<Request, std::vector<std::pair<Request, bool>>> gpic_op_to_mem_ops[MAX_GPIC_SA_NUM];
     std::map<Request, std::vector<long>> gpic_random_to_mem_ops;
-    std::vector<std::pair<long, Request>> gpic_instruction_queue[GPIC_SA_NUM];
-    std::vector<std::pair<long, Request>> gpic_compute_queue[GPIC_SA_NUM];
-    long last_gpic_instruction_compute_clk[GPIC_SA_NUM];
-    bool last_gpic_instruction_computed[GPIC_SA_NUM];
-    bool last_gpic_instruction_sent[GPIC_SA_NUM];
+    std::vector<std::pair<long, Request>> gpic_instruction_queue[MAX_GPIC_SA_NUM];
+    std::vector<std::pair<long, Request>> gpic_compute_queue[MAX_GPIC_SA_NUM];
+    long last_gpic_instruction_compute_clk[MAX_GPIC_SA_NUM];
+    bool last_gpic_instruction_computed[MAX_GPIC_SA_NUM];
+    bool last_gpic_instruction_sent[MAX_GPIC_SA_NUM];
     std::map<Request, int> gpic_vop_to_num_sop;
 
-    long VL_reg = GPIC_SA_NUM * 256;
+    long VL_reg[4];
     long VC_reg = 1;
-    long LS_reg = 0;
-    long SS_reg = 0;
-    int V_PER_SA = 1;
-    int SA_PER_V = GPIC_SA_NUM;
+    vector<bool> VM_reg[4];
+    long LS_reg[4] = {0, 0, 0, 0};
+    long SS_reg[4] = {0, 0, 0, 0};
 
-    int calc_log2(int val)
-    {
+    int V_PER_SA = 1;
+    int SA_PER_V = MAX_GPIC_SA_NUM;
+
+    int calc_log2(int val) {
         int n = 0;
         while ((val >>= 1))
             n++;
         return n;
     }
 
-    int get_index(long addr)
-    {
+    int get_index(long addr) {
         return (addr >> index_offset) & index_mask;
     };
 
-    long get_tag(long addr)
-    {
+    long get_tag(long addr) {
         return (addr >> tag_offset);
     }
 
     // Align the address to cache line size
-    long align(long addr)
-    {
+    long align(long addr) {
         return (addr & ~(block_size - 1l));
     }
 
@@ -223,30 +214,24 @@ protected:
     // Evict the victim from current set of lines.
     // First do invalidation, then call evictline(L1 or L2) or send
     // a write request to memory(L3) when dirty bit is on.
-    void evict(std::list<Line>* lines,
-        std::list<Line>::iterator victim);
+    void evict(std::list<Line> *lines,
+               std::list<Line>::iterator victim);
 
     // First test whether need eviction, if so, do eviction by
     // calling evict function. Then allocate a new line and return
     // the iterator points to it.
     std::list<Line>::iterator allocate_line(
-        std::list<Line>& lines, long addr);
+        std::list<Line> &lines, long addr);
 
     // Check whether the set to hold addr has space or eviction is
     // needed.
-    bool need_eviction(const std::list<Line>& lines, long addr);
+    bool need_eviction(const std::list<Line> &lines, long addr);
 
-    // Check whether this addr is hit and fill in the pos_ptr with
-    // the iterator to the hit line or lines.end()
-    bool is_hit(std::list<Line>& lines, long addr,
-        std::list<Line>::iterator* pos_ptr);
-
-    bool all_sets_locked(const std::list<Line>& lines)
-    {
+    bool all_sets_locked(const std::list<Line> &lines) {
         if (lines.size() < assoc) {
             return false;
         }
-        for (const auto& line : lines) {
+        for (const auto &line : lines) {
             if (!line.lock) {
                 return false;
             }
@@ -254,15 +239,14 @@ protected:
         return true;
     }
 
-    bool check_unlock(long addr)
-    {
+    bool check_unlock(long addr) {
         auto it = cache_lines.find(get_index(addr));
         if (it == cache_lines.end()) {
             return true;
         } else {
-            auto& lines = it->second;
+            auto &lines = it->second;
             auto line = find_if(lines.begin(), lines.end(),
-                [addr, this](Line l) { return (l.tag == get_tag(addr)); });
+                                [addr, this](Line l) { return (l.tag == get_tag(addr)); });
             if (line == lines.end()) {
                 return true;
             } else {
@@ -281,21 +265,19 @@ protected:
     }
 
     std::vector<std::pair<long, std::list<Line>::iterator>>::iterator
-    hit_mshr(long addr)
-    {
+    hit_mshr(long addr) {
         auto mshr_it = find_if(mshr_entries.begin(), mshr_entries.end(),
-            [addr, this](std::pair<long, std::list<Line>::iterator>
-                    mshr_entry) {
-                return (align(mshr_entry.first) == align(addr));
-            });
+                               [addr, this](std::pair<long, std::list<Line>::iterator>
+                                                mshr_entry) {
+                                   return (align(mshr_entry.first) == align(addr));
+                               });
         return mshr_it;
     }
 
-    std::list<Line>& get_lines(long addr)
-    {
+    std::list<Line> &get_lines(long addr) {
         if (cache_lines.find(get_index(addr)) == cache_lines.end()) {
             cache_lines.insert(make_pair(get_index(addr),
-                std::list<Line>()));
+                                         std::list<Line>()));
         }
         return cache_lines[get_index(addr)];
     }
@@ -303,9 +285,8 @@ protected:
 
 class CacheSystem {
 public:
-    CacheSystem(const Config& configs, std::function<bool(Request)> send_memory)
-        : send_memory(send_memory)
-    {
+    CacheSystem(const Config &configs, std::function<bool(Request)> send_memory)
+        : send_memory(send_memory) {
         if (configs.has_core_caches()) {
             first_level = Cache::Level::L1;
         } else if (configs.has_l3_cache()) {

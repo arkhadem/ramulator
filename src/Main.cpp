@@ -11,6 +11,7 @@
 #include <functional>
 #include <map>
 #include <stdlib.h>
+#include <string>
 
 /* Standards */
 #include "ALDRAM.h"
@@ -34,29 +35,70 @@ using namespace ramulator;
 
 bool ramulator::warmup_complete = false;
 
-int ramulator::l1_size = 1 << 16;
-int ramulator::l1_assoc = 1 << 2;
-int ramulator::l1_blocksz = 1 << 6;
-int ramulator::l1_mshr_num = 12;
-float ramulator::l1_access_energy = 9.006323047;
-
-int ramulator::l2_size = 1 << 17;
-int ramulator::l2_assoc = 1 << 2;
-int ramulator::l2_blocksz = 1 << 6;
-int ramulator::l2_mshr_num = 46;
-float ramulator::l2_access_energy = 20.655976172;
+std::map<core_type_t, core_config_t> ramulator::core_configs;
 
 int ramulator::l3_size = 1 << 21;
 int ramulator::l3_assoc = 1 << 4;
 int ramulator::l3_blocksz = 1 << 6;
 int ramulator::mshr_per_bank = 64;
 float ramulator::l3_access_energy = 167.581634688;
+int ramulator::l3_gpic_core_num = 32;
+bool ramulator::gpic_out_of_order = true;
+
+void declare_configuration(const Config &configs) {
+    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.size = 1 << 16;
+    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.blocksz = 1 << 6;
+    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.mshr_num = 12;
+    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.access_energy = 9.006323047;
+
+    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.size = 1 << 16;
+    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.blocksz = 1 << 6;
+    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.mshr_num = 12;
+    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.access_energy = 9.006323047;
+
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.size = 1 << 16;
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.blocksz = 1 << 6;
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.mshr_num = 12;
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.access_energy = 9.006323047;
+
+    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.size = 1 << 16;
+    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.blocksz = 1 << 6;
+    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.mshr_num = 46;
+    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.access_energy = 20.655976172;
+
+    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.size = 1 << 17;
+    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.blocksz = 1 << 6;
+    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.mshr_num = 46;
+    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.access_energy = 20.655976172;
+
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.blocksz = 1 << 6;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.mshr_num = 46;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.access_energy = 20.655976172;
+
+    ramulator::core_configs[core_type_t::SILVER].ipc = 1;
+    ramulator::core_configs[core_type_t::GOLD].ipc = 4;
+    ramulator::core_configs[core_type_t::PRIME].ipc = 4;
+
+    ramulator::core_configs[core_type_t::SILVER].gpic_core_num = 8;
+    ramulator::core_configs[core_type_t::GOLD].gpic_core_num = 16;
+    ramulator::core_configs[core_type_t::PRIME].gpic_core_num = 32;
+
+    ramulator::core_configs[core_type_t::SILVER].out_of_order = false;
+    ramulator::core_configs[core_type_t::GOLD].out_of_order = true;
+    ramulator::core_configs[core_type_t::PRIME].out_of_order = true;
+}
 
 std::ofstream ramulator::op_trace;
 
 template <typename T>
-void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const std::vector<const char*>& files)
-{
+void run_dramtrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
 
     /* initialize DRAM trace */
     // assuming only one file
@@ -69,7 +111,7 @@ void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const s
     long addr = 0;
     Request::Type type = Request::Type::READ;
     map<int, int> latencies;
-    auto read_complete = [&latencies](Request& r) { latencies[r.depart - r.arrive]++; };
+    auto read_complete = [&latencies](Request &r) { latencies[r.depart - r.arrive]++; };
 
     Request req(addr, type, read_complete);
 
@@ -103,11 +145,11 @@ void run_dramtrace(const Config& configs, Memory<T, Controller>& memory, const s
 }
 
 template <typename T>
-void run_cputrace(const Config& configs, Memory<T, Controller>& memory, const std::vector<const char*>& files)
-{
+void run_cputrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
     auto send = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
+    declare_configuration(configs);
     Processor proc(configs, files, send, memory);
 
     long warmup_insts = configs.get_warmup_insts();
@@ -172,11 +214,11 @@ void run_cputrace(const Config& configs, Memory<T, Controller>& memory, const st
 }
 
 template <typename T>
-void run_gpictrace(const Config& configs, Memory<T, Controller>& memory, const std::vector<const char*>& files)
-{
+void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
     auto send = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
+    declare_configuration(configs);
     Processor proc(configs, files, send, memory);
 
     bool is_warming_up = configs.is_warming_up();
@@ -244,21 +286,20 @@ void run_gpictrace(const Config& configs, Memory<T, Controller>& memory, const s
 }
 
 template <typename T>
-void start_run(const Config& configs, T* spec, const vector<const char*>& files)
-{
+void start_run(const Config &configs, T *spec, const vector<const char *> &files) {
     // initiate controller and memory
     int C = configs.get_channels(), R = configs.get_ranks();
     // Check and Set channel, rank number
     spec->set_channel_number(C);
     spec->set_rank_number(R);
-    std::vector<Controller<T>*> ctrls;
+    std::vector<Controller<T> *> ctrls;
     int prev_children = 0;
     for (int c = 0; c < C; c++) {
-        DRAM<T>* channel = new DRAM<T>(spec, T::Level::Channel);
+        DRAM<T> *channel = new DRAM<T>(spec, T::Level::Channel);
         channel->id = c;
         channel->regStats("");
         prev_children = channel->set_index(prev_children);
-        Controller<T>* ctrl = new Controller<T>(configs, channel);
+        Controller<T> *ctrl = new Controller<T>(configs, channel);
         ctrls.push_back(ctrl);
     }
     Memory<T, Controller> memory(configs, ctrls);
@@ -273,21 +314,20 @@ void start_run(const Config& configs, T* spec, const vector<const char*>& files)
     }
 }
 
-int main(int argc, const char* argv[])
-{
+int main(int argc, const char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <configs-file> --mode=cpu,dram,gpic [--warmup] [--core=<core-num>] [--stats <filename>] <trace-filename1> <trace-filename2>\n"
-               "Example: %s ramulator-configs.cfg --mode=cpu --core=1 cpu.trace cpu.trace\n",
-            argv[0], argv[0]);
+        printf("Usage: %s <configs-file> --mode=cpu,dram,gpic [--warmup] [--core=<core-num> <core1-type> ...] [--stats <filename>] <trace-filename1> <trace-filename2>\n"
+               "Example: %s ramulator-configs.cfg --mode=gpic --core=1 gold cpu.trace cpu.trace\n",
+               argv[0], argv[0]);
         return 0;
     }
 
     Config configs(argv[1]);
 
-    const std::string& standard = configs["standard"];
+    const std::string &standard = configs["standard"];
     assert(standard != "" || "DRAM standard should be specified.");
 
-    const char* trace_type = strstr(argv[2], "=");
+    const char *trace_type = strstr(argv[2], "=");
     trace_type++;
     if (strcmp(trace_type, "cpu") == 0) {
         configs.add("trace_type", "CPU");
@@ -311,7 +351,8 @@ int main(int argc, const char* argv[])
     }
 
     int core_num = 0;
-    const char* core_num_str = strstr(argv[trace_start], "--core=");
+    std::vector<std::string> core_types;
+    const char *core_num_str = strstr(argv[trace_start], "--core=");
     if (core_num_str != nullptr) {
         core_num_str = strstr(argv[trace_start], "=");
         core_num_str++;
@@ -321,6 +362,12 @@ int main(int argc, const char* argv[])
             assert(false);
         }
         trace_start++;
+        for (int core_idx = 0; core_idx < core_num; core_idx++) {
+            const char *core_type = argv[trace_start];
+            trace_start++;
+            assert((strcmp(core_type, "silver") == 0) || (strcmp(core_type, "gold") == 0) || (strcmp(core_type, "prime") == 0));
+            core_types.push_back(std::string(core_type));
+        }
     }
 
     string stats_out;
@@ -347,64 +394,65 @@ int main(int argc, const char* argv[])
         configs.add("mapping", "defaultmapping");
     }
 
-    std::vector<const char*> files(&argv[trace_start], &argv[argc]);
+    std::vector<const char *> files(&argv[trace_start], &argv[argc]);
     if (core_num != 0) {
         if (argc - trace_start < core_num) {
             printf("number of trace files must be >= core num\n");
             assert(false);
         }
         configs.set_core_num(core_num);
+        configs.set_core_types(core_types);
     } else {
         configs.set_core_num(argc - trace_start);
     }
 
     if (standard == "DDR3") {
-        DDR3* ddr3 = new DDR3(configs["org"], configs["speed"]);
+        DDR3 *ddr3 = new DDR3(configs["org"], configs["speed"]);
         start_run(configs, ddr3, files);
     } else if (standard == "DDR4") {
-        DDR4* ddr4 = new DDR4(configs["org"], configs["speed"]);
+        DDR4 *ddr4 = new DDR4(configs["org"], configs["speed"]);
         start_run(configs, ddr4, files);
     } else if (standard == "SALP-MASA") {
-        SALP* salp8 = new SALP(configs["org"], configs["speed"], "SALP-MASA", configs.get_subarrays());
+        SALP *salp8 = new SALP(configs["org"], configs["speed"], "SALP-MASA", configs.get_subarrays());
         start_run(configs, salp8, files);
     } else if (standard == "LPDDR3") {
-        LPDDR3* lpddr3 = new LPDDR3(configs["org"], configs["speed"]);
+        LPDDR3 *lpddr3 = new LPDDR3(configs["org"], configs["speed"]);
         start_run(configs, lpddr3, files);
     } else if (standard == "LPDDR4") {
         // total cap: 2GB, 1/2 of others
-        LPDDR4* lpddr4 = new LPDDR4(configs["org"], configs["speed"]);
+        LPDDR4 *lpddr4 = new LPDDR4(configs["org"], configs["speed"]);
         start_run(configs, lpddr4, files);
     } else if (standard == "GDDR5") {
-        GDDR5* gddr5 = new GDDR5(configs["org"], configs["speed"]);
+        GDDR5 *gddr5 = new GDDR5(configs["org"], configs["speed"]);
         start_run(configs, gddr5, files);
     } else if (standard == "HBM") {
-        HBM* hbm = new HBM(configs["org"], configs["speed"]);
+        HBM *hbm = new HBM(configs["org"], configs["speed"]);
         start_run(configs, hbm, files);
     } else if (standard == "WideIO") {
         // total cap: 1GB, 1/4 of others
-        WideIO* wio = new WideIO(configs["org"], configs["speed"]);
+        WideIO *wio = new WideIO(configs["org"], configs["speed"]);
         start_run(configs, wio, files);
     } else if (standard == "WideIO2") {
         // total cap: 2GB, 1/2 of others
-        WideIO2* wio2 = new WideIO2(configs["org"], configs["speed"], configs.get_channels());
+        WideIO2 *wio2 = new WideIO2(configs["org"], configs["speed"], configs.get_channels());
         wio2->channel_width *= 2;
         start_run(configs, wio2, files);
     } else if (standard == "STTMRAM") {
-        STTMRAM* sttmram = new STTMRAM(configs["org"], configs["speed"]);
+        STTMRAM *sttmram = new STTMRAM(configs["org"], configs["speed"]);
         start_run(configs, sttmram, files);
     } else if (standard == "PCM") {
-        PCM* pcm = new PCM(configs["org"], configs["speed"]);
+        PCM *pcm = new PCM(configs["org"], configs["speed"]);
         start_run(configs, pcm, files);
     }
     // Various refresh mechanisms
     else if (standard == "DSARP") {
-        DSARP* dsddr3_dsarp = new DSARP(configs["org"], configs["speed"], DSARP::Type::DSARP, configs.get_subarrays());
+        DSARP *dsddr3_dsarp = new DSARP(configs["org"], configs["speed"], DSARP::Type::DSARP, configs.get_subarrays());
         start_run(configs, dsddr3_dsarp, files);
     } else if (standard == "ALDRAM") {
-        ALDRAM* aldram = new ALDRAM(configs["org"], configs["speed"]);
+        ALDRAM *aldram = new ALDRAM(configs["org"], configs["speed"]);
         start_run(configs, aldram, files);
     } else if (standard == "TLDRAM") {
-        TLDRAM* tldram = new TLDRAM(configs["org"], configs["speed"], configs.get_subarrays());
+        TLDRAM *tldram = new TLDRAM(configs["org"], configs["speed"], configs.get_subarrays());
         start_run(configs, tldram, files);
     }
 
