@@ -41,6 +41,9 @@ endif
 ramulator: $(MAIN) $(OBJS) $(SRCDIR)/*.h | depend
 	$(CXX) $(CXXFLAGS) -DRAMULATOR -o $@ $(MAIN) $(OBJS)
 
+ramulator2: $(MAIN) $(OBJS) $(SRCDIR)/*.h | depend
+	$(CXX) $(CXXFLAGS) -DRAMULATOR -o $@ $(MAIN) $(OBJS)
+
 libramulator.a: $(OBJS) $(OBJDIR)/Gem5Wrapper.o
 	libtool -static -o $@ $(OBJS) $(OBJDIR)/Gem5Wrapper.o
 

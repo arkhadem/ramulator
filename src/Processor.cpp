@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace std;
 using namespace ramulator;
@@ -236,6 +237,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
         first_level_cache = caches[1].get();
 
         if (configs.is_gpic()) {
+            DC_reg = 1;
             VL_reg[0] = gpic_core_num * 256;
             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
@@ -361,11 +363,10 @@ void Core::tick() {
                 request = Request(id, Request::UnitID::CORE);
                 window.insert(true, request);
             } else if (req_type == Request::Type::GPIC) {
-                if (req_opcode.find("_set_") != string::npos) {
+                if ((req_opcode.find("_set_") != string::npos) || (req_opcode.find("_unset_") != string::npos)) {
                     // it's a config GPIC instruction
                     request = Request(req_opcode, req_dim, req_value, callback, id, Request::UnitID::CORE);
-                    assert(req_value >= 0);
-                    window.insert(true, request);
+                    assert((req_value >= 0) || (req_value == -1));
                     if (req_opcode.find("stride") != string::npos) {
                         if (req_opcode.find("load") != string::npos) {
                             LS_reg[req_dim] = req_value;
@@ -376,8 +377,11 @@ void Core::tick() {
                         }
                     } else if (req_opcode.find("dim") != string::npos) {
                         if (req_opcode.find("length") != string::npos) {
+                            assert(req_dim < DC_reg);
                             VL_reg[req_dim] = req_value;
                             assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (256 * gpic_core_num));
+                        } else if (req_opcode.find("count") != string::npos) {
+                            DC_reg = req_dim;
                         } else {
                             assert(false);
                         }
@@ -386,6 +390,7 @@ void Core::tick() {
                     } else {
                         assert(false);
                     }
+                    window.insert(true, request);
                 } else {
                     int data_type = 0;
                     if (req_opcode.find("_b") != string::npos) {
@@ -398,7 +403,8 @@ void Core::tick() {
                         data_type = 64;
                     } else {
                         // It's just a 64-byte load/store
-                        assert(false);
+                        printf("Error: request %s does not have correct type!\n", req_opcode.c_str());
+                        exit(-1);
                     }
                     if ((req_opcode.find("load") != string::npos) || (req_opcode.find("store") != string::npos)) {
                         // it's a load or store GPIC instruction
@@ -415,15 +421,44 @@ void Core::tick() {
                             hint("address_length = %d/8 = %ld\n", data_type, address_length);
                         }
 
-                        req_addr_starts.clear();
                         req_addr_ends.clear();
-                        long addr;
-                        for (int i = 0; i < VL_reg[3]; i++) {
-                            for (int j = 0; j < VL_reg[2]; j++) {
-                                for (int k = 0; k < VL_reg[1]; k++) {
-                                    addr = req_addr + (((i * stride[3] + j * stride[2] + k * stride[1]) * data_type) / 8);
-                                    req_addr_starts.push_back(addr);
-                                    req_addr_ends.push_back(addr + address_length - 1);
+
+                        if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
+                            // It's a random load or store
+                            vector<long> req_addr_starts_temp;
+                            long addr_3;
+                            long addr_2;
+                            long addr_1;
+                            for (int i = 0; i < VL_reg[3]; i++) {
+                                if (DC_reg == 4)
+                                    addr_3 = req_addr_starts[i];
+                                for (int j = 0; j < VL_reg[2]; j++) {
+                                    if (DC_reg == 3)
+                                        addr_2 = req_addr_starts[j];
+                                    else
+                                        addr_2 = addr_3 + (stride[2] * j * data_type / 8);
+                                    for (int k = 0; k < VL_reg[1]; k++) {
+                                        if (DC_reg == 2)
+                                            addr_1 = req_addr_starts[k];
+                                        else
+                                            addr_1 = addr_2 + (stride[1] * j * data_type / 8);
+                                        req_addr_starts_temp.push_back(addr_1);
+                                        req_addr_ends.push_back(addr_1 + address_length - 1);
+                                    }
+                                }
+                            }
+                            req_addr_starts = req_addr_starts_temp;
+                        } else {
+                            // It's a regular strided load/store
+                            long addr;
+                            req_addr_starts.clear();
+                            for (int i = 0; i < VL_reg[3]; i++) {
+                                for (int j = 0; j < VL_reg[2]; j++) {
+                                    for (int k = 0; k < VL_reg[1]; k++) {
+                                        addr = req_addr + (((i * stride[3] + j * stride[2] + k * stride[1]) * data_type) / 8);
+                                        req_addr_starts.push_back(addr);
+                                        req_addr_ends.push_back(addr + address_length - 1);
+                                    }
                                 }
                             }
                         }
@@ -436,7 +471,7 @@ void Core::tick() {
                         window.insert(false, request);
                         // } else if (req_opcode.find("move") != string::npos) {
                         //     // it's a move GPIC instruction
-                        //     assert(req_vid_dst < VC_reg);
+                        //     assert(req_vid_dst < DC_reg);
                         //     request = Request(req_opcode, data_type, req_vid, req_vid_dst, callback, id, Request::UnitID::CORE);
                         //     window.insert(true, request);
                     } else {
@@ -657,6 +692,10 @@ bool Window::is_empty() {
     return load == 0;
 }
 
+bool Window::no_retry() {
+    return retry_list.size() == 0;
+}
+
 bool overlap(long a_s, long a_e, long b_s, long b_e) {
     if ((a_s <= b_s) && (b_s <= a_e)) {
         return true;
@@ -720,6 +759,12 @@ bool Window::find_older_unsent(int location) {
     return false;
 }
 
+int Window::get_location(int location) {
+    if (location >= tail)
+        return location - tail;
+    return depth + location - tail;
+}
+
 bool Window::check_send(Request &req, int location) {
     if (req.type == Request::Type::GPIC) {
         if ((gpic_out_of_order == false) || (out_of_order == false))
@@ -728,14 +773,14 @@ bool Window::check_send(Request &req, int location) {
         if (find_older_unsent(location) == false) {
             if ((req.addr != -1) && (req.opcode.find("store") != string::npos)) {
                 // GPIC STORE: Do Nothing
-                hint("failed to send %s because store must be at the head of ROB\n", req.c_str());
+                hint("failed to send @%d %s because store must be at the head of ROB\n", get_location(location), req.c_str());
                 return false;
             } else if ((req.addr != -1) && (req.opcode.find("load") != string::npos)) {
                 // GPIC LOAD: Find older stores
                 bool older_store = false;
                 if (req.opcode.find("loadr") != string::npos) {
                     // If it's a random load, check with all older stores
-                    older_store = find_any_older_stores(location, Request::Type::WRITE);
+                    older_store = false; //find_any_older_stores(location, Request::Type::WRITE);
                 } else {
                     // It's a strided load, find stores to the same addresses
                     Request::Type type;
@@ -743,7 +788,7 @@ bool Window::check_send(Request &req, int location) {
                 }
                 if (older_store == true) {
                     // Do Nothing
-                    hint("failed to send %s because of older CPU store\n", req.c_str());
+                    hint("failed to send @%d %s because of older CPU store\n", get_location(location), req.c_str());
                     return false;
                 } else {
                     // Send it
@@ -768,7 +813,7 @@ bool Window::check_send(Request &req, int location) {
             }
         } else {
             // Do Nothing
-            hint("failed to send %s because of same older instructions\n", req.c_str());
+            hint("failed to send @%d %s because of same older instructions\n", get_location(location), req.c_str());
             return false;
         }
     } else if (req.type == Request::Type::READ) {
@@ -780,7 +825,7 @@ bool Window::check_send(Request &req, int location) {
         if (find_any_older_stores(location, Request::Type::GPIC)) {
             // There is a random GPIC store
             // Do Nothing
-            hint("failed to send %s because of any older GPIC random store\n", req.c_str());
+            hint("failed to send @%d %s because of any older GPIC random store\n", get_location(location), req.c_str());
             return false;
         } else if (find_older_stores(req.addr, req.addr_end, type, location)) {
             if (type == Request::Type::WRITE) {
@@ -790,9 +835,9 @@ bool Window::check_send(Request &req, int location) {
                 sent_list.at(head) = true;
                 return true;
             } else {
-                // It's a GPIC store
+                // It's a strided GPIC store
                 // Do Nothing
-                hint("failed to send %s because of the same older GPIC store\n", req.c_str());
+                hint("failed to send @%d %s because of the same older GPIC store\n", get_location(location), req.c_str());
                 return false;
             }
         } else {
@@ -935,7 +980,9 @@ void Window::reset_state() {
         // addr_list.at(idx) = -1;
         req_list.at(idx) = Request();
     }
-
+    for (int idx = 0; idx < retry_list.size(); idx++) {
+        printf("retry_list[%d]: %s\n", idx, retry_list[idx].c_str());
+    }
     assert(retry_list.size() == 0);
 }
 
@@ -1089,17 +1136,17 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
                 // line = line.substr(pos);
             }
             /*
-                        req_vid = std::stoi(line, &pos, 10);
-                        // pos = line.find_first_not_of(' ', pos);
-                        // line = line.substr(pos);
-                        if (req_opcode.find("move") != string::npos) {
-                            // it's a move. read dst SA num as well.
-                            pos = line.find_first_not_of(' ', pos);
-                            line = line.substr(pos);
-                            req_vid_dst = std::stoi(line, &pos, 10);
-                        
-                        }
-                    */
+                req_vid = std::stoi(line, &pos, 10);
+                // pos = line.find_first_not_of(' ', pos);
+                // line = line.substr(pos);
+                if (req_opcode.find("move") != string::npos) {
+                    // it's a move. read dst SA num as well.
+                    pos = line.find_first_not_of(' ', pos);
+                    line = line.substr(pos);
+                    req_vid_dst = std::stoi(line, &pos, 10);
+                
+                }
+            */
         }
     }
     pos = line.find_first_not_of(' ', pos);
@@ -1108,7 +1155,7 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
         line = line.substr(pos);
         bubble_cnt = std::stoul(line, &pos, 10);
     }
-    if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("load1r") != string::npos) || (req_opcode.find("storer") != string::npos)) {
+    if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
         long req_addr_start;
         while ((pos = line.find_first_not_of(' ', pos)) != string::npos) {
             line = line.substr(pos);

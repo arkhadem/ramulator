@@ -13,8 +13,6 @@
 #include <string>
 #include <vector>
 
-#define ADVANCED_ROB
-
 namespace ramulator {
 
 class Core;
@@ -50,6 +48,7 @@ public:
     }
     bool is_full();
     bool is_empty();
+    bool no_retry();
     void insert(bool ready, Request &req);
     void set_ready(Request req);
     void set_ready(Request req, int mask);
@@ -60,9 +59,8 @@ private:
     bool find_older_stores(long a_s, long a_e, Request::Type &type, int location);
     bool find_any_older_stores(int location, Request::Type type);
     bool find_older_unsent(int location);
-#ifdef ADVANCED_ROB
+    int get_location(int location);
     bool check_send(Request &req, int location);
-#endif
     int load = 0;
     int head = 0;
     int tail = 0;
@@ -138,6 +136,7 @@ private:
     bool more_reqs = true;
     long last = 0;
 
+    long DC_reg;
     long VL_reg[4];
     long LS_reg[4];
     long SS_reg[4];

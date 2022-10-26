@@ -121,8 +121,6 @@ public:
 
     void instrinsic_decoder(Request req);
 
-    void intrinsic_computer(Request req);
-
     int stride_evaluator(long rstride, bool load);
 
     void random_access_decoder(Request req);
@@ -132,11 +130,7 @@ public:
     bool vector_masked(int vid);
 
     // Check whether this addr is hit and fill in the pos_ptr with the iterator to the hit line or lines.end()
-    bool is_hit(std::vector<std::shared_ptr<Line>> &lines, long addr, std::shared_ptr<Line> *pos_ptr);
-
-    std::shared_ptr<Cache::Line> add_line(std::vector<std::shared_ptr<Line>> *lines, long addr, bool locked = true, bool dirty = false);
-
-    bool remove_line(std::vector<std::shared_ptr<Line>> *lines, std::shared_ptr<Line> line);
+    bool is_hit(std::list<Line> &lines, long addr, std::list<Line>::iterator *pos_ptr);
 
 protected:
     int core_id;
@@ -153,15 +147,14 @@ protected:
     float access_energy;
     long last_id = 0;
     int gpic_core_num;
-    bool locked = false;
 
-    std::vector<std::pair<long, std::shared_ptr<Line>>> mshr_entries;
+    std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
 
     std::vector<Request> self_retry_list;
 
     std::list<std::pair<long, Request>> retry_list;
 
-    std::map<int, std::vector<std::shared_ptr<Line>>> cache_lines;
+    std::map<int, std::list<Line>> cache_lines;
 
     std::map<std::string, long> GPIC_COMPUTE_DELAY;
     std::map<std::string, long> GPIC_ACCESS_DELAY;
@@ -172,7 +165,7 @@ protected:
 
     std::map<Request, std::vector<std::pair<Request, bool>>> gpic_op_to_mem_ops[MAX_GPIC_SA_NUM];
     std::map<Request, std::vector<long>> gpic_random_to_mem_ops;
-    std::vector<std::pair<long, Request>> gpic_incoming_req_queue;
+    std::vector<std::pair<long, Request>> gpic_instruction_queue[MAX_GPIC_SA_NUM];
     std::vector<std::pair<long, Request>> gpic_compute_queue[MAX_GPIC_SA_NUM];
     long last_gpic_instruction_compute_clk[MAX_GPIC_SA_NUM];
     bool last_gpic_instruction_computed[MAX_GPIC_SA_NUM];
@@ -222,39 +215,40 @@ protected:
     // Evict the victim from current set of lines.
     // First do invalidation, then call evictline(L1 or L2) or send
     // a write request to memory(L3) when dirty bit is on.
-    bool evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_ptr<Cache::Line> victim);
+    bool evict(std::list<Line> *lines, std::list<Line>::iterator victim);
 
     // First test whether need eviction, if so, do eviction by
     // calling evict function. Then allocate a new line and return
     // the iterator points to it.
-    std::shared_ptr<Line> allocate_line(std::vector<std::shared_ptr<Cache::Line>> &lines, long addr);
+    std::list<Line>::iterator allocate_line(
+        std::list<Line> &lines, long addr);
 
     // Check whether the set to hold addr has space or eviction is
     // needed.
-    bool need_eviction(std::vector<std::shared_ptr<Cache::Line>> &lines, long addr);
+    bool need_eviction(const std::list<Line> &lines, long addr);
 
     bool exists_addr(long addr) {
-        std::map<int, std::vector<std::shared_ptr<Line>>>::iterator it;
-        it = cache_lines.find(get_index(addr));
+        auto it = cache_lines.find(get_index(addr));
         if (it == cache_lines.end()) {
             return false;
         } else {
-            std::vector<std::shared_ptr<Line>> &lines = it->second;
-            for (std::shared_ptr<Line> &line : lines) {
-                if (line->tag == get_tag(addr)) {
-                    return true;
-                }
+            auto &lines = it->second;
+            auto line = find_if(lines.begin(), lines.end(),
+                                [addr, this](Line l) { return (l.tag == get_tag(addr)); });
+            if (line == lines.end()) {
+                return false;
+            } else {
+                return true;
             }
-            return false;
         }
     }
 
-    bool all_sets_locked(std::vector<std::shared_ptr<Cache::Line>> &lines) {
+    bool all_sets_locked(const std::list<Line> &lines) {
         if (lines.size() < assoc) {
             return false;
         }
-        for (std::shared_ptr<Cache::Line> &line : lines) {
-            if (!line->lock) {
+        for (const auto &line : lines) {
+            if (!line.lock) {
                 return false;
             }
         }
@@ -262,29 +256,23 @@ protected:
     }
 
     bool check_unlock(long addr) {
-        std::map<int, std::vector<std::shared_ptr<Line>>>::iterator it;
-        it = cache_lines.find(get_index(addr));
+        auto it = cache_lines.find(get_index(addr));
         if (it == cache_lines.end()) {
             return true;
         } else {
-            std::vector<std::shared_ptr<Line>> &lines = it->second;
-            std::shared_ptr<Line> line_ptr = nullptr;
-            for (std::shared_ptr<Line> &line : lines) {
-                if (line->tag == get_tag(addr)) {
-                    line_ptr = line;
-                    break;
-                }
-            }
-            if (line_ptr == nullptr) {
+            auto &lines = it->second;
+            auto line = find_if(lines.begin(), lines.end(),
+                                [addr, this](Line l) { return (l.tag == get_tag(addr)); });
+            if (line == lines.end()) {
                 return true;
             } else {
-                bool check = !line_ptr->lock;
+                bool check = !line->lock;
                 if (!is_first_level) {
                     for (auto hc : higher_cache) {
                         if (!check) {
                             return check;
                         }
-                        check = check && hc->check_unlock(line_ptr->addr);
+                        check = check && hc->check_unlock(line->addr);
                     }
                 }
                 return check;
@@ -292,20 +280,19 @@ protected:
         }
     }
 
-    std::shared_ptr<Line> hit_mshr(long addr) {
-        std::vector<std::pair<long, std::shared_ptr<Line>>>::iterator mshr_it;
-        mshr_it = find_if(mshr_entries.begin(), mshr_entries.end(),
-                          [addr, this](std::pair<long, std::shared_ptr<Line>> mshr_entry) {
-                              return (align(mshr_entry.first) == align(addr));
-                          });
-        if (mshr_it == mshr_entries.end())
-            return nullptr;
-        return mshr_it->second;
+    std::vector<std::pair<long, std::list<Line>::iterator>>::iterator
+    hit_mshr(long addr) {
+        auto mshr_it = find_if(mshr_entries.begin(), mshr_entries.end(),
+                               [addr, this](std::pair<long, std::list<Line>::iterator>
+                                                mshr_entry) {
+                                   return (align(mshr_entry.first) == align(addr));
+                               });
+        return mshr_it;
     }
 
-    std::vector<std::shared_ptr<Line>> &get_lines(long addr) {
+    std::list<Line> &get_lines(long addr) {
         if (cache_lines.find(get_index(addr)) == cache_lines.end()) {
-            cache_lines.insert(make_pair(get_index(addr), std::vector<std::shared_ptr<Line>>()));
+            cache_lines.insert(make_pair(get_index(addr), std::list<Line>()));
         }
         return cache_lines[get_index(addr)];
     }

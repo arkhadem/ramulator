@@ -34,6 +34,8 @@ public:
         EXTENSION,
         GPIC,
         INITIALIZED,
+        EVICT_DIRTY,
+        EVICT_CLEAN,
         MAX
     } type;
     int sid = -1;
@@ -68,6 +70,11 @@ public:
     long arrive = -1;
     long depart = -1;
     function<void(Request &)> callback; // call back with more info
+
+    int min_vid = -1;
+    int max_vid = -1;
+
+    vector<bool> vector_mask;
 
     // For GPIC loads and stores
     Request(std::string &opcode, long addr, long addr_end, std::vector<long> addr_starts, std::vector<long> addr_ends, long data_type, long stride, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
@@ -120,9 +127,17 @@ public:
     }
 
     Request(int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : addr(-1), type(Request::Type::MAX), data_type(-1), coreid(coreid), unitid(unitid) {
+        : coreid(coreid), unitid(unitid) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
+        opcode = "NONE";
+        addr = -1;
+        addr_end = -1;
+        stride = -1;
+        type = Type::MAX;
+        data_type = -1;
+        addr_starts = std::vector<long>();
+        addr_ends = std::vector<long>();
     }
 
     friend bool operator==(const Request &req1, const Request &req2) {
@@ -176,7 +191,7 @@ public:
                 }
                 req_stream << std::dec << "), Stride(" << stride << ")"; //, VID(" << vid << ")";
                 if (sid != -1) {
-                    req_stream << ", SID(" << sid << ")";
+                    req_stream << ", SID(" << sid << "), min_vid(" << min_vid << "), max_vid(" << max_vid << ")";
                 }
                 req_stream << "]";
                 // } else if (vid_dst != -1) {
@@ -190,7 +205,7 @@ public:
                 // it's a compute instruction
                 req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << ")"; //", VID(" << vid << ")";
                 if (sid != -1) {
-                    req_stream << ", SID(" << sid << ")";
+                    req_stream << ", SID(" << sid << "), min_vid(" << min_vid << "), max_vid(" << max_vid << ")";
                 }
                 req_stream << "]";
             }
@@ -202,6 +217,10 @@ public:
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(INITIALIZED)]";
         } else if (type == Type::MAX) {
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(BUBBLE)]";
+        } else if (type == Type::EVICT_CLEAN) {
+            req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(EVICT_CLEAN)], addr(0x" << std::hex << addr << ")]";
+        } else if (type == Type::EVICT_DIRTY) {
+            req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(EVICT_DIRTY)], addr(0x" << std::hex << addr << ")]";
         } else {
             assert(false);
         }
