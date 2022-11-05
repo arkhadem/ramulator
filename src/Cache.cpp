@@ -173,7 +173,10 @@ void Cache::init_intrinsic_latency() {
         file.open("/home/home/ramulator/data/gpic_intrinsics_latency.csv", ios::in);
     }
     if (file.is_open() == false) {
-        printf("Error: could not find /home/arkhadem/GPIC/ramulator/data/gpic_intrinsics_latency.csv or /home/home/ramulator/data/gpic_intrinsics_latency.csv\n");
+        file.open("/home/arkhadem/ramulator/data/gpic_intrinsics_latency.csv", ios::in);
+    }
+    if (file.is_open() == false) {
+        printf("Error: could not find gpic latency csv file!\n");
         exit(-1);
     }
     if (file.is_open()) {

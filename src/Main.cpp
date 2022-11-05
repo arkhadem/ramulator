@@ -75,8 +75,8 @@ void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::GOLD].l2_cache_config.mshr_num = 46;
     ramulator::core_configs[core_type_t::GOLD].l2_cache_config.access_energy = 20.655976172;
 
-    // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
-    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 19;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
+    // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 19;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 2;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.blocksz = 1 << 6;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.mshr_num = 46;
