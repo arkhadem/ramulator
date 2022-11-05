@@ -169,6 +169,13 @@ void Cache::init_intrinsic_latency() {
     std::string line, intrinsic, rd_wr_latency, compute_latency;
 
     fstream file("/home/arkhadem/GPIC/ramulator/data/gpic_intrinsics_latency.csv", ios::in);
+    if (file.is_open() == false) {
+        file.open("/home/home/ramulator/data/gpic_intrinsics_latency.csv", ios::in);
+    }
+    if (file.is_open() == false) {
+        printf("Error: could not find /home/arkhadem/GPIC/ramulator/data/gpic_intrinsics_latency.csv or /home/home/ramulator/data/gpic_intrinsics_latency.csv\n");
+        exit(-1);
+    }
     if (file.is_open()) {
 
         // reading and ignoring header file
@@ -188,29 +195,7 @@ void Cache::init_intrinsic_latency() {
         }
     } else {
         printf("Error: could not find /home/arkhadem/GPIC/ramulator/data/gpic_intrinsics_latency.csv\n");
-    }
-    file.close();
-
-    file.open("/home/arkhadem/GPIC/ramulator/data/dc_intrinsics_latency.csv", ios::in);
-    if (file.is_open()) {
-
-        // reading and ignoring header file
-        std::getline(file, line);
-
-        // reading all intrinsics
-        while (std::getline(file, line)) {
-
-            stringstream str(line);
-
-            std::getline(str, intrinsic, ',');
-            std::getline(str, rd_wr_latency, ',');
-            std::getline(str, compute_latency, ',');
-
-            DC_ACCESS_DELAY[intrinsic.c_str()] = atoi(rd_wr_latency.c_str());
-            DC_COMPUTE_DELAY[intrinsic.c_str()] = atoi(compute_latency.c_str());
-        }
-    } else {
-        printf("Error: could not find /home/arkhadem/GPIC/ramulator/data/dc_intrinsics_latency.csv\n");
+        exit(-1);
     }
     file.close();
 }
@@ -288,16 +273,13 @@ bool Cache::vector_masked(int vid) {
 void Cache::intrinsic_computer(Request req) {
     long compute_delay, access_delay, bitlines;
     if (req.opcode.find("_dc_") != string::npos) {
-        assert(req.opcode.find("_pc3_") == string::npos);
-        compute_delay = DC_COMPUTE_DELAY[req.opcode];
-        access_delay = DC_ACCESS_DELAY[req.opcode];
-        bitlines = 4;
-    } else {
-        assert(req.opcode.find("_pc3_") != string::npos);
-        compute_delay = GPIC_COMPUTE_DELAY[req.opcode];
-        access_delay = GPIC_ACCESS_DELAY[req.opcode];
-        bitlines = 1;
+        // DC is no longer supported
+        assert("false");
     }
+    assert(req.opcode.find("_pc3_") != string::npos);
+    compute_delay = GPIC_COMPUTE_DELAY[req.opcode];
+    access_delay = GPIC_ACCESS_DELAY[req.opcode];
+    bitlines = 1;
     // hint("%s %d %d\n", req.opcode.c_str(), compute_delay, access_delay);
     if ((compute_delay + access_delay) != 0) {
         hint("%s set for compute in %ld clock cycles\n", req.c_str(), compute_delay + access_delay);
@@ -418,7 +400,6 @@ void Cache::instrinsic_decoder(Request req) {
                 }
 
                 // Schedule the instruction
-                hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
                 intrinsic_computer(req);
             }
         }
@@ -427,35 +408,29 @@ void Cache::instrinsic_decoder(Request req) {
             hint("21- Calling back %s to core\n", req.c_str());
             req.callback(req);
         }
-        // } else {
-        //     gpic_vop_to_num_sop[req] = SA_PER_V;
-        //     // For each SA of the vector
-        //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
-        //         req.sid = vid_to_sid(req.vid, sid_offset);
-        //         // Schedule the instruction
-        //         hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
-        //         gpic_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
-        //     }
-        // }
     }
 }
 
-void Cache::random_access_decoder(Request req) {
+void Cache::random_dict_access_decoder(Request req) {
     // Accessing memory to load random load/store addresses
-    assert(gpic_random_to_mem_ops.count(req) == 0);
-    gpic_random_to_mem_ops[req] = std::vector<long>();
+    assert(gpic_random_dict_to_mem_ops.count(req) == 0);
+    gpic_random_dict_to_mem_ops[req] = std::vector<long>();
     long lower_cache_line = align(req.addr);
-    long upper_cache_line = align(req.addr + (VL_reg[DC_reg - 1] * 8) - 1);
-    int access_needed = (long)(std::ceil((float)(upper_cache_line - lower_cache_line) / (float)(block_size))) + 1;
+    long upper_cache_line;
+    if (req.opcode.find("dict") != string::npos)
+        upper_cache_line = req.addr_end;
+    else
+        upper_cache_line = align(req.addr + (VL_reg[DC_reg - 1] * 8) - 1);
+    int access_needed = ((upper_cache_line - lower_cache_line) / block_size) + 1;
     long req_addr = lower_cache_line;
     Request::Type req_type = Request::Type::READ;
     for (int i = 0; i < access_needed; i++) {
         int req_coreid = req.coreid;
         Request::UnitID req_unitid = (Request::UnitID)(level);
-        Request mem_req(req_addr, req_type, processor_callback, req_coreid, req_unitid);
+        Request mem_req(req_addr, req_type, true, processor_callback, req_coreid, req_unitid);
         mem_req.reqid = last_id;
         last_id++;
-        gpic_random_to_mem_ops[req].push_back(req_addr);
+        gpic_random_dict_to_mem_ops[req].push_back(req_addr);
         req_addr += block_size;
 
         // send it
@@ -470,10 +445,13 @@ void Cache::random_access_decoder(Request req) {
 }
 
 bool Cache::memory_controller(Request req) {
+    printf("%s\n", req.c_str());
     if (req.opcode.find("_set_") != string::npos) {
         // it's a config GPIC instruction
-
-        if (req.opcode.find("stride") != string::npos) {
+        if (req.opcode.find("mask") != string::npos) {
+            // do nothing
+            assert(true);
+        } else if (req.opcode.find("stride") != string::npos) {
             assert(req.dim < DC_reg);
             if (req.opcode.find("load") != string::npos) {
                 LS_reg[req.dim] = req.value;
@@ -504,7 +482,7 @@ bool Cache::memory_controller(Request req) {
                     }
                 }
             } else if (req.opcode.find("count") != string::npos) {
-                DC_reg = req.dim;
+                DC_reg = req.value;
             } else {
                 assert(false);
             }
@@ -544,8 +522,8 @@ bool Cache::memory_controller(Request req) {
             return false;
         }
 
-        if ((req.opcode.find("loadr") != string::npos) || (req.opcode.find("storer") != string::npos)) {
-            random_access_decoder(req);
+        if ((req.opcode.find("loadr") != string::npos) || (req.opcode.find("storer") != string::npos) || (req.opcode.find("dict") != string::npos)) {
+            random_dict_access_decoder(req);
         } else {
             instrinsic_decoder(req);
         }
@@ -565,18 +543,6 @@ bool Cache::send(Request req) {
 
         return true;
     }
-    // else if (req.type == Request::Type::EVICT_DIRTY) {
-    //     evictline(req.addr, true);
-    //     return true;
-    // } else if (req.type == Request::Type::EVICT_CLEAN) {
-    //     evictline(req.addr, false);
-    //     return true;
-    // }
-
-    // req.addr = align(req.addr);
-    // req.addr_end = align(req.addr) + 7;
-    // req.addr_starts[0] = req.addr;
-    // req.addr_ends[0] = req.addr_end;
 
     debug("level %s received %s, index %d, tag %ld\n",
           level_string.c_str(), req.c_str(), get_index(req.addr),
@@ -621,34 +587,20 @@ bool Cache::send(Request req) {
         std::shared_ptr<Cache::Line> line = add_line(&lines, req.addr, false, dirty);
         hint("1- %s: Pushed back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), req.addr, get_index(req.addr), get_tag(req.addr));
 
-#ifdef DEBUG
-        std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
-        cache_line = cache_lines.find(get_index(req.addr));
-        if (cache_line == cache_lines.end()) {
-            hint("No line found for the aforementioned idx and tag");
-        } else {
-            std::vector<std::shared_ptr<Line>> liinees;
-            liinees = cache_line->second;
-            for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-                hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-            }
-        }
-#endif
-
         remove_line(&lines, line);
 
-#ifdef DEBUG
-        hint("1- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), req.addr, get_index(req.addr), get_tag(req.addr));
-        if (cache_line == cache_lines.end()) {
-            hint("No line found for the aforementioned idx and tag");
-        } else {
-            std::vector<std::shared_ptr<Line>> liinees;
-            liinees = cache_line->second;
-            for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-                hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-            }
-        }
-#endif
+        // #ifdef DEBUG
+        //         hint("1- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), req.addr, get_index(req.addr), get_tag(req.addr));
+        //         if (line == cache_lines.end()) {
+        //             hint("No line found for the aforementioned idx and tag");
+        //         } else {
+        //             std::vector<std::shared_ptr<Line>> liinees;
+        //             liinees = line->second;
+        //             for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+        //                 hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+        //             }
+        //         }
+        // #endif
 
         cachesys->hit_list.push_back(make_pair(cachesys->clk + latency_each[int(level)] + invalidate_time, req));
 
@@ -762,35 +714,35 @@ void Cache::evictline(long addr, bool dirty) {
     // bit inherited from higher level(s) is set.
     add_line(&lines, addr, false, dirty || line_shared_ptr->dirty);
 
-#ifdef DEBUG
-    hint("2- %s: Pushed back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), addr, get_index(addr), get_tag(addr));
-    std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
-    cache_line = cache_lines.find(get_index(addr));
-    if (cache_line == cache_lines.end()) {
-        hint("No line found for the aforementioned idx and tag");
-    } else {
-        std::vector<std::shared_ptr<Line>> liinees;
-        liinees = cache_line->second;
-        for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-            hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-        }
-    }
-#endif
+    // #ifdef DEBUG
+    //     hint("2- %s: Pushed back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), addr, get_index(addr), get_tag(addr));
+    //     std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
+    //     cache_line = cache_lines.find(get_index(addr));
+    //     if (cache_line == cache_lines.end()) {
+    //         hint("No line found for the aforementioned idx and tag");
+    //     } else {
+    //         std::vector<std::shared_ptr<Line>> liinees;
+    //         liinees = cache_line->second;
+    //         for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+    //             hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+    //         }
+    //     }
+    // #endif
 
     remove_line(&lines, line_shared_ptr);
 
-#ifdef DEBUG
-    hint("2- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), line_shared_ptr->addr, get_index(line_shared_ptr->addr), get_tag(line_shared_ptr->addr));
-    if (cache_line == cache_lines.end()) {
-        hint("No line found for the aforementioned idx and tag");
-    } else {
-        std::vector<std::shared_ptr<Line>> liinees;
-        liinees = cache_line->second;
-        for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-            hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-        }
-    }
-#endif
+    // #ifdef DEBUG
+    //     hint("2- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), line_shared_ptr->addr, get_index(line_shared_ptr->addr), get_tag(line_shared_ptr->addr));
+    //     if (cache_line == cache_lines.end()) {
+    //         hint("No line found for the aforementioned idx and tag");
+    //     } else {
+    //         std::vector<std::shared_ptr<Line>> liinees;
+    //         liinees = cache_line->second;
+    //         for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+    //             hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+    //         }
+    //     }
+    // #endif
 }
 
 bool Cache::invalidate(long addr, std::pair<long, bool> &result) {
@@ -822,20 +774,20 @@ bool Cache::invalidate(long addr, std::pair<long, bool> &result) {
         dirty = line_shared_ptr->dirty;
         remove_line(&lines, line_shared_ptr);
 
-#ifdef DEBUG
-        hint("3- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), line_shared_ptr->addr, get_index(line_shared_ptr->addr), line_shared_ptr->tag);
-        std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
-        cache_line = cache_lines.find(get_index(addr));
-        if (cache_line == cache_lines.end()) {
-            hint("No line found for the aforementioned idx and tag");
-        } else {
-            std::vector<std::shared_ptr<Line>> liinees;
-            liinees = cache_line->second;
-            for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-                hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-            }
-        }
-#endif
+        // #ifdef DEBUG
+        //         hint("3- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), line_shared_ptr->addr, get_index(line_shared_ptr->addr), line_shared_ptr->tag);
+        //         std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
+        //         cache_line = cache_lines.find(get_index(addr));
+        //         if (cache_line == cache_lines.end()) {
+        //             hint("No line found for the aforementioned idx and tag");
+        //         } else {
+        //             std::vector<std::shared_ptr<Line>> liinees;
+        //             liinees = cache_line->second;
+        //             for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+        //                 hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+        //             }
+        //         }
+        // #endif
 
     } else {
         // If it's not in current level, then no need to go up.
@@ -895,13 +847,6 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
     if (!is_last_level) {
         // not LLC eviction
         assert(lower_cache != nullptr);
-        // Request::Type type = dirty ? Request::Type::EVICT_DIRTY : Request::Type::EVICT_CLEAN;
-        // Request evict_req(addr, type, 0, (Request::UnitID)(level));
-        // evict_req.reqid = last_id;
-        // last_id++;
-        // std::pair<long, Request> time_req = make_pair(cachesys->clk + latency_each[int(level)], evict_req);
-        // retry_list.push_back(time_req);
-        // hint("%s set request %s for execution\n", level_string.c_str(), evict_req.c_str());
         lower_cache->evictline(addr, dirty);
     } else {
         // LLC eviction
@@ -931,20 +876,20 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
         }
     }
 
-#ifdef DEBUG
-    hint("4- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), victim->addr, get_index(victim->addr), victim->tag);
-    std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
-    cache_line = cache_lines.find(get_index(victim->addr));
-    if (cache_line == cache_lines.end()) {
-        hint("No line found for the aforementioned idx and tag");
-    } else {
-        std::vector<std::shared_ptr<Line>> liinees;
-        liinees = cache_line->second;
-        for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-            hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-        }
-    }
-#endif
+    // #ifdef DEBUG
+    //     hint("4- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), victim->addr, get_index(victim->addr), victim->tag);
+    //     std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
+    //     cache_line = cache_lines.find(get_index(victim->addr));
+    //     if (cache_line == cache_lines.end()) {
+    //         hint("No line found for the aforementioned idx and tag");
+    //     } else {
+    //         std::vector<std::shared_ptr<Line>> liinees;
+    //         liinees = cache_line->second;
+    //         for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+    //             hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+    //         }
+    //     }
+    // #endif
 
     return true;
 }
@@ -1000,19 +945,19 @@ std::shared_ptr<Cache::Line> Cache::allocate_line(std::vector<std::shared_ptr<Ca
     std::shared_ptr<Cache::Line> new_line = add_line(&lines, addr);
     hint("3- %s: Pushed back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), addr, get_index(addr), get_tag(addr));
 
-#ifdef DEBUG
-    std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
-    cache_line = cache_lines.find(get_index(addr));
-    if (cache_line == cache_lines.end()) {
-        hint("No line found for the aforementioned idx and tag");
-    } else {
-        std::vector<std::shared_ptr<Line>> liinees;
-        liinees = cache_line->second;
-        for (std::shared_ptr<Cache::Line> &liinee : liinees) {
-            hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
-        }
-    }
-#endif
+    // #ifdef DEBUG
+    //     std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
+    //     cache_line = cache_lines.find(get_index(addr));
+    //     if (cache_line == cache_lines.end()) {
+    //         hint("No line found for the aforementioned idx and tag");
+    //     } else {
+    //         std::vector<std::shared_ptr<Line>> liinees;
+    //         liinees = cache_line->second;
+    //         for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+    //             hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+    //         }
+    //     }
+    // #endif
 
     hint("%s addr 0x%lx pushed to lines!\n", level_string.c_str(), addr);
 
@@ -1071,8 +1016,8 @@ void Cache::callback(Request &req) {
     }
 
     // Remove corresponding random load/store addresses
-    auto random_it = gpic_random_to_mem_ops.begin();
-    while (random_it != gpic_random_to_mem_ops.end()) {
+    auto random_it = gpic_random_dict_to_mem_ops.begin();
+    while (random_it != gpic_random_dict_to_mem_ops.end()) {
         auto mem_it = random_it->second.begin();
         while (mem_it != random_it->second.end()) {
             if (align(req.addr) == align(*mem_it)) {
@@ -1089,7 +1034,7 @@ void Cache::callback(Request &req) {
             instrinsic_decoder(random_it->first);
             hint("unlocking...\n");
             locked = false;
-            random_it = gpic_random_to_mem_ops.erase(random_it);
+            random_it = gpic_random_dict_to_mem_ops.erase(random_it);
             gpic_incoming_req_queue.erase(gpic_incoming_req_queue.begin());
         } else {
             ++random_it;
@@ -1250,35 +1195,10 @@ void Cache::tick() {
                             hint("13- %s ignored one zero-addressed memory access for %s\n", level_string.c_str(), req.c_str());
                             continue;
                         }
-                        // if (req.stride * req.data_type / 8 <= block_size) {
-                        //     // Load/store all cache lines
-                        //     long lower_cache_line = align(req.addr_starts[idx]);
-                        //     long upper_cache_line = align(req.addr_ends[idx]);
-                        //     int access_needed = (long)(std::ceil((float)(upper_cache_line - lower_cache_line) / (float)(block_size))) + 1;
-                        //     hint("13- %s unpacking %d instructions for %s\n", level_string.c_str(), access_needed, req.c_str());
-                        //     assert(access_needed > 0);
-                        //     long req_addr = lower_cache_line;
-                        //     for (int i = 0; i < access_needed; i++) {
-                        //         // Check if this memory access has happenned before
-                        //         if (addr_exists(gpic_op_to_mem_ops[sid][req], req_addr)) {
-                        //             hint("14- %s NOT sending 0x%lx to %s\n", level_string.c_str(), req_addr, level_string.c_str());
-                        //         } else {
-                        //             // make the request
-                        //             Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
-                        //             int req_coreid = req.coreid;
-                        //             Request::UnitID req_unitid = (Request::UnitID)(level);
-                        //             Request mem_req(req_addr, req_type, processor_callback, req_coreid, req_unitid);
-                        //             mem_req.reqid = last_id;
-                        //             last_id++;
-                        //             gpic_op_to_mem_ops[sid][req].push_back(std::pair<Request, bool>(mem_req, false));
-                        //         }
-                        //         req_addr += block_size;
-                        //     }
-                        // } else {
                         long addr = req.addr_starts[idx];
                         for (int i = req.min_vid; i < req.max_vid; i++) {
-                            if ((addr < req.addr_starts[idx]) || (addr >= req.addr_ends[idx])) {
-                                printf("Error: (addr(0x%lx) < req.addr_starts[%d](0x%lx)) || (addr(0x%lx) >= req.addr_ends[%d](0x%lx))", addr, i, req.addr_starts[idx], addr, i, req.addr_ends[idx]);
+                            if ((addr < req.addr_starts[idx]) || (addr > req.addr_ends[idx])) {
+                                printf("Error: (addr(0x%lx) < req.addr_starts[%d](0x%lx)) || (addr(0x%lx) > req.addr_ends[%d](0x%lx))", addr, i, req.addr_starts[idx], addr, i, req.addr_ends[idx]);
                                 exit(-1);
                             }
                             if (req.vector_mask.size() <= i) {
@@ -1293,7 +1213,7 @@ void Cache::tick() {
                                     Request::Type req_type = (req.opcode.find("load") != string::npos) ? Request::Type::READ : Request::Type::WRITE;
                                     int req_coreid = req.coreid;
                                     Request::UnitID req_unitid = (Request::UnitID)(level);
-                                    Request mem_req(align(addr), req_type, processor_callback, req_coreid, req_unitid);
+                                    Request mem_req(align(addr), req_type, true, processor_callback, req_coreid, req_unitid);
                                     mem_req.reqid = last_id;
                                     last_id++;
                                     gpic_op_to_mem_ops[sid][req].push_back(std::pair<Request, bool>(mem_req, false));
@@ -1302,7 +1222,6 @@ void Cache::tick() {
                             }
                             addr += (req.stride * req.data_type / 8);
                         }
-                        // }
                     }
 
                     last_gpic_instruction_sent[sid] = true;
@@ -1317,13 +1236,12 @@ void Cache::tick() {
                         last_gpic_instruction_computed[sid] = false;
                         last_gpic_instruction_sent[sid] = false;
                     } else {
-                        // send the first address
-                        for (int mem_idx = 0; mem_idx < (mshr_entry_num / gpic_core_num); mem_idx++) {
-                            if (mem_idx >= gpic_op_to_mem_ops[sid][req].size())
-                                break;
+                        // send the until mshr is full
+                        for (int mem_idx = 0; mem_idx < gpic_op_to_mem_ops[sid][req].size(); mem_idx++) {
                             hint("15- %s sending %s to %s\n", level_string.c_str(), gpic_op_to_mem_ops[sid][req][mem_idx].first.c_str(), level_string.c_str());
                             if (send(gpic_op_to_mem_ops[sid][req][mem_idx].first) == false) {
-                                self_retry_list.push_back(gpic_op_to_mem_ops[sid][req][mem_idx].first);
+                                // self_retry_list.push_back(gpic_op_to_mem_ops[sid][req][mem_idx].first);
+                                break;
                             }
                             gpic_op_to_mem_ops[sid][req][mem_idx].second = true;
                         }
@@ -1413,12 +1331,12 @@ void Cache::tick() {
 
             if (gpic_compute_queue[sid].size() == 0) {
                 // There is no instruction ready for execute
-                hint("%s GPIC %d HOST_DEVICE...\n", level_string.c_str(), sid);
+                // hint("%s GPIC %d HOST_DEVICE...\n", level_string.c_str(), sid);
                 GPIC_host_device_total_cycles++;
                 GPIC_host_device_cycles[sid]++;
             } else {
                 // Instruction at top must be move and stalled by dst SA
-                hint("%s GPIC %d MOVE...\n", level_string.c_str(), sid);
+                // hint("%s GPIC %d MOVE...\n", level_string.c_str(), sid);
                 assert(gpic_compute_queue[sid].at(0).second.opcode.find("move") != string::npos);
                 GPIC_move_stall_total_cycles++;
                 GPIC_move_stall_cycles[sid]++;
@@ -1427,14 +1345,14 @@ void Cache::tick() {
 
         if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == false)) {
             // An instruction is being computed
-            hint("%s GPIC %d COMPUTE...\n", level_string.c_str(), sid);
+            // hint("%s GPIC %d COMPUTE...\n", level_string.c_str(), sid);
             GPIC_compute_total_cycles++;
             GPIC_compute_cycles[sid]++;
         }
 
         if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == true)) {
             // An instruction is computed and sent, waiting for memory instructions to be called back
-            hint("%s GPIC %d MEMORY...\n", level_string.c_str(), sid);
+            // hint("%s GPIC %d MEMORY...\n", level_string.c_str(), sid);
             GPIC_memory_total_cycles++;
             GPIC_memory_cycles[sid]++;
         }
@@ -1452,7 +1370,7 @@ bool Cache::finished() {
     if (gpic_incoming_req_queue.size() != 0)
         return false;
 
-    if (gpic_random_to_mem_ops.size() != 0)
+    if (gpic_random_dict_to_mem_ops.size() != 0)
         return false;
 
     for (int sid = 0; sid < gpic_core_num; sid++) {
@@ -1489,7 +1407,7 @@ void Cache::reset_state() {
     GPIC_compute_total_energy = 0;
     GPIC_compute_comp_total_energy = 0;
     GPIC_compute_rdwr_total_energy = 0;
-    assert(gpic_random_to_mem_ops.size() == 0);
+    assert(gpic_random_dict_to_mem_ops.size() == 0);
 
     for (int i = 0; i < gpic_incoming_req_queue.size(); i++) {
         printf("ERROR: %s remained in gpic incoming instruction queue %s\n", gpic_incoming_req_queue.at(0).second.c_str(), level_string.c_str());

@@ -10,7 +10,7 @@
 #define MAX_CORE_ID 16
 #define MAX_GPIC_SA_NUM 32
 
-// #define DEBUG
+#define DEBUG
 
 #ifndef DEBUG
 #define hint(...)
@@ -22,8 +22,6 @@
 #endif
 
 namespace ramulator {
-
-extern bool gpic_out_of_order;
 
 enum core_type_t { SILVER,
                    GOLD,

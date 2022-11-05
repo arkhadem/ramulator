@@ -3,6 +3,7 @@
 #include "Config.h"
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -327,6 +328,40 @@ int *Core::stride_evaluator(long *rstride, bool load) {
     return lstride;
 }
 
+bool Core::dispatch_gpic() {
+#if (EXETYPE == DVI) || (EXETYPE == OUTORDER)
+    if (req_dst != -1) {
+        // it needs physical register allocation
+        if (free_pr >= data_type) {
+            free_pr -= data_type;
+            hint("%d registers allocated for request %s\n", data_type, request.c_str());
+            window.insert(request);
+            dispatch_stalled = false;
+#if (EXETYPE == OUTORDER)
+            if (free_pr <= 80) {
+                hint("Enough VR allocated, start freeing PRs.");
+                all_vr_allocated = true;
+            }
+#endif
+            return true;
+        } else {
+            // we have to stall the dispatch
+            hint("No %d physical registers (%ld) for request %s, waiting...\n", data_type, free_pr, request.c_str());
+            dispatch_stalled = true;
+            return false;
+        }
+    } else {
+        // it does not need physical register allocation
+        window.insert(request);
+        dispatch_stalled = false;
+        return true;
+    }
+#else
+    window.insert(request);
+    return true;
+#endif
+}
+
 void Core::tick() {
     clk++;
 
@@ -351,21 +386,47 @@ void Core::tick() {
         }
 
         while ((inserted < window.ipc) && (window.is_full() == false)) {
-
-            if (bubble_cnt == -1) {
-                more_reqs = trace.get_gpic_request(bubble_cnt, req_opcode, req_dim, req_value, req_addr, req_addr_starts, req_stride, req_type); //, req_vid, req_vid_dst);
+#if (EXETYPE == DVI) || (EXETYPE == OUTORDER)
+            if (dispatch_stalled == true) {
+                if (dispatch_gpic() == false) {
+                    break;
+                }
+                bubble_cnt -= 1;
+                inserted = 1;
+            }
+#endif
+            if (bubble_cnt < 0) {
+                more_reqs = trace.get_gpic_request(bubble_cnt, req_opcode, req_dst, req_src1, req_src2, req_dim, req_value, req_addr, req_addr_starts, req_stride, req_type); //, req_vid, req_vid_dst);
                 if (!more_reqs) {
                     break;
+                }
+                if (req_opcode.find("_b") != string::npos) {
+                    data_type = 8;
+                } else if ((req_opcode.find("_w") != string::npos) || (req_opcode.find("_hf") != string::npos)) {
+                    data_type = 16;
+                } else if ((req_opcode.find("_dw") != string::npos) || (req_opcode.find("_f") != string::npos)) {
+                    data_type = 32;
+                } else if ((req_opcode.find("_qw") != string::npos) || (req_opcode.find("_df") != string::npos)) {
+                    data_type = 64;
+                } else {
+                    // It's a CPU load / store
+                    data_type = 0;
                 }
             }
 
             if (bubble_cnt > 0) {
                 request = Request(id, Request::UnitID::CORE);
-                window.insert(true, request);
+                window.insert(request);
+#if (EXETYPE == DVI)
+            } else if (req_type == Request::Type::FREE) {
+                window.add_free_instr(data_type);
+                bubble_cnt = -1;
+                continue;
+#endif
             } else if (req_type == Request::Type::GPIC) {
                 if ((req_opcode.find("_set_") != string::npos) || (req_opcode.find("_unset_") != string::npos)) {
                     // it's a config GPIC instruction
-                    request = Request(req_opcode, req_dim, req_value, callback, id, Request::UnitID::CORE);
+                    request = Request(req_opcode, req_dim, req_value, true, callback, id, Request::UnitID::CORE);
                     assert((req_value >= 0) || (req_value == -1));
                     if (req_opcode.find("stride") != string::npos) {
                         if (req_opcode.find("load") != string::npos) {
@@ -381,31 +442,32 @@ void Core::tick() {
                             VL_reg[req_dim] = req_value;
                             assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (256 * gpic_core_num));
                         } else if (req_opcode.find("count") != string::npos) {
-                            DC_reg = req_dim;
+                            DC_reg = req_value;
                         } else {
                             assert(false);
                         }
                     } else if (req_opcode.find("element") != string::npos) {
                         // DO NOTHING \ NONE OF CORE'S BUSINESS
                     } else {
-                        assert(false);
+                        assert(req_opcode.find("mask") != string::npos);
                     }
-                    window.insert(true, request);
+                    assert(dispatch_gpic());
+                } else if (req_opcode.find("_dict_") != string::npos) {
+                    // Only 8-bit dict is implemented
+                    assert(data_type == 8);
+
+                    long req_addr_start = req_addr;
+                    long req_addr_end = req_addr + 255;
+
+                    req_addr_starts.clear();
+                    req_addr_ends.clear();
+
+                    request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, -1, false, callback, id, Request::UnitID::CORE);
+
+                    if (dispatch_gpic() == false) {
+                        break;
+                    }
                 } else {
-                    int data_type = 0;
-                    if (req_opcode.find("_b") != string::npos) {
-                        data_type = 8;
-                    } else if ((req_opcode.find("_w") != string::npos) || (req_opcode.find("_hf") != string::npos)) {
-                        data_type = 16;
-                    } else if ((req_opcode.find("_dw") != string::npos) || (req_opcode.find("_f") != string::npos)) {
-                        data_type = 32;
-                    } else if ((req_opcode.find("_qw") != string::npos) || (req_opcode.find("_df") != string::npos)) {
-                        data_type = 64;
-                    } else {
-                        // It's just a 64-byte load/store
-                        printf("Error: request %s does not have correct type!\n", req_opcode.c_str());
-                        exit(-1);
-                    }
                     if ((req_opcode.find("load") != string::npos) || (req_opcode.find("store") != string::npos)) {
                         // it's a load or store GPIC instruction
 
@@ -466,18 +528,18 @@ void Core::tick() {
                         long req_addr_start = req_addr;
                         long req_addr_end = req_addr + (((VL_reg[3] * stride[3] + VL_reg[2] * stride[2] + VL_reg[1] * stride[1]) * data_type) / 8) + address_length - 1;
 
-                        request = Request(req_opcode, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, req_stride[0], callback, id, Request::UnitID::CORE);
+                        request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, req_stride[0], false, callback, id, Request::UnitID::CORE);
 
-                        window.insert(false, request);
-                        // } else if (req_opcode.find("move") != string::npos) {
-                        //     // it's a move GPIC instruction
-                        //     assert(req_vid_dst < DC_reg);
-                        //     request = Request(req_opcode, data_type, req_vid, req_vid_dst, callback, id, Request::UnitID::CORE);
-                        //     window.insert(true, request);
+                        if (dispatch_gpic() == false) {
+                            break;
+                        }
                     } else {
                         // it's a computational GPIC instruction
-                        request = Request(req_opcode, data_type, callback, id, Request::UnitID::CORE);
-                        window.insert(true, request);
+                        request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, true, callback, id, Request::UnitID::CORE);
+
+                        if (dispatch_gpic() == false) {
+                            break;
+                        }
                     }
                 }
             } else if (req_type == Request::Type::INITIALIZED) {
@@ -486,16 +548,16 @@ void Core::tick() {
                 return;
             } else if (req_type == Request::Type::READ) {
                 // it's a CPU load instrunction
-                request = Request(req_addr, req_type, callback, id, Request::UnitID::CORE);
-                window.insert(false, request);
+                request = Request(req_addr, req_type, false, callback, id, Request::UnitID::CORE);
+                assert(dispatch_gpic());
             } else {
                 // it's a CPU store instrunction
                 assert(req_type == Request::Type::WRITE);
-                request = Request(req_addr, req_type, callback, id, Request::UnitID::CORE);
-                window.insert(true, request);
+                request = Request(req_addr, req_type, true, callback, id, Request::UnitID::CORE);
+                assert(dispatch_gpic());
             }
 
-            bubble_cnt--;
+            bubble_cnt -= 1;
             cpu_inst++;
             inserted++;
             if (long(cpu_inst.value()) == expected_limit_insts && !reached_limit) {
@@ -514,7 +576,7 @@ void Core::tick() {
 
             request = Request(id, Request::UnitID::CORE);
 
-            window.insert(true, request);
+            window.insert(request);
             inserted++;
             bubble_cnt--;
             cpu_inst++;
@@ -533,14 +595,14 @@ void Core::tick() {
             if (window.is_full())
                 return;
 
-            request = Request(req_addr, req_type, callback, id, Request::UnitID::CORE);
+            request = Request(req_addr, req_type, false, callback, id, Request::UnitID::CORE);
 
-            window.insert(false, request);
+            window.insert(request);
             cpu_inst++;
         } else {
             // write request
             assert(req_type == Request::Type::WRITE);
-            Request req(req_addr, req_type, callback, id, Request::UnitID::CORE);
+            Request req(req_addr, req_type, true, callback, id, Request::UnitID::CORE);
             hint("5- CORE sending %s to cache\n", req.c_str());
             if (!ls_send(req))
                 return;
@@ -594,8 +656,6 @@ void Core::reset_state() {
     memory_access_cycles = 0;
     cpu_inst = 0;
 
-    // req_vid = -1;
-    // req_vid_dst = -1;
     bubble_cnt = -1;
     req_addr = -1;
     req_stride.clear();
@@ -603,6 +663,16 @@ void Core::reset_state() {
     req_value = -1;
     req_opcode = "NULL";
     req_type = Request::Type::MAX;
+    req_dst = -1;
+    req_src1 = -1;
+    req_src2 = -1;
+#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+    free_pr = 256;
+    dispatch_stalled = false;
+#endif
+#if (EXETYPE == OUTORDER)
+    all_vr_allocated = false;
+#endif
     more_reqs = true;
     last = 0;
     req_addr_starts.clear();
@@ -706,6 +776,19 @@ bool overlap(long a_s, long a_e, long b_s, long b_e) {
     return false;
 }
 
+#if (EXETYPE == DVI)
+void Window::add_free_instr(int data_type) {
+    int location;
+    if (head == 0) {
+        location = depth - 1;
+    } else {
+        location = head - 1;
+    }
+    req_list.at(location).free_reg += data_type;
+    hint("%d registers added to the free list of %s\n", data_type, req_list.at(location).c_str());
+}
+#endif
+
 bool Window::find_older_stores(long a_s, long a_e, Request::Type &type, int location) {
     bool found = false;
     int idx = tail;
@@ -713,6 +796,11 @@ bool Window::find_older_stores(long a_s, long a_e, Request::Type &type, int loca
         Request curr_request = req_list.at(idx);
         if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("store") != string::npos)) {
             // It's a GPIC store
+            if (curr_request.opcode.find("storer") != string::npos) {
+                // It's a random store, not predictable
+                type = Request::Type::GPIC;
+                return true;
+            }
             if (overlap(a_s, a_e, curr_request.addr, curr_request.addr_end)) {
                 // It has overlap
                 type = Request::Type::GPIC;
@@ -747,12 +835,18 @@ bool Window::find_any_older_stores(int location, Request::Type type) {
     return false;
 }
 
-bool Window::find_older_unsent(int location) {
+bool Window::find_older_unsent(int location, long dst_reg) {
+    if (dst_reg == -1) {
+        return false;
+    }
+
     int idx = tail;
 
     while (idx != location) {
-        if ((req_list.at(idx).type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
-            return true;
+        Request curr_req = req_list.at(idx);
+        if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
+            if ((dst_reg == curr_req.src1) || (dst_reg == curr_req.src1))
+                return true;
         }
         idx = (idx + 1) % depth;
     }
@@ -767,10 +861,13 @@ int Window::get_location(int location) {
 
 bool Window::check_send(Request &req, int location) {
     if (req.type == Request::Type::GPIC) {
-        if ((gpic_out_of_order == false) || (out_of_order == false))
+        if (out_of_order == false)
             return false;
+#if (EXETYPE == INORDER)
+        return false;
+#endif
         // Find if there is any unsent instruction
-        if (find_older_unsent(location) == false) {
+        if (find_older_unsent(location, req.dst) == false) {
             if ((req.addr != -1) && (req.opcode.find("store") != string::npos)) {
                 // GPIC STORE: Do Nothing
                 hint("failed to send @%d %s because store must be at the head of ROB\n", get_location(location), req.c_str());
@@ -831,7 +928,7 @@ bool Window::check_send(Request &req, int location) {
             if (type == Request::Type::WRITE) {
                 // Set complete and sent = true
                 hint("Load to store forwarding for %s\n", req.c_str());
-                ready_list.at(head) = true;
+                req_list.at(head).ready = true;
                 sent_list.at(head) = true;
                 return true;
             } else {
@@ -856,7 +953,7 @@ bool Window::check_send(Request &req, int location) {
     return false;
 }
 
-void Window::insert(bool ready, Request &req) {
+void Window::insert(Request &req) {
     assert(load <= depth);
 
     // core itself
@@ -865,7 +962,6 @@ void Window::insert(bool ready, Request &req) {
 
     hint("insert called for %s\n", req.c_str());
 
-    ready_list.at(head) = ready;
     req_list.at(head) = req;
     // addr_list.at(head) = req.addr;
 
@@ -933,13 +1029,27 @@ long Window::tick() {
             sent_list.at(tail) = true;
         }
 
-        if (!ready_list.at(tail))
+        if (!req_list.at(tail).ready)
             break;
 
         hint("Retired: %s\n", req_list.at(tail).c_str());
 
+#if (EXETYPE == DVI)
+        // add physical registers to free list
+        core->free_pr += req_list.at(tail).free_reg;
+        if (req_list.at(tail).free_reg != 0)
+            hint("%ld registers freed\n", req_list.at(tail).free_reg);
+#elif (EXETYPE == OUTORDER)
+        // add physical registers to free list
+        if (core->all_vr_allocated) {
+            if (req_list.at(tail).dst != -1) {
+                assert((req_list.at(tail).data_type != 0) && (req_list.at(tail).data_type % 8 == 0));
+                core->free_pr += req_list.at(tail).data_type;
+                hint("%ld registers freed\n", req_list.at(tail).data_type);
+            }
+        }
+#endif
         // remove all data from tail
-        ready_list.at(tail) = false;
         sent_list.at(tail) = false;
         // addr_list.at(tail) = -1;
         req_list.at(tail) = Request();
@@ -975,7 +1085,6 @@ void Window::reset_state() {
     last_id = 0;
 
     for (int idx = 0; idx < depth; idx++) {
-        ready_list.at(idx) = false;
         assert(sent_list.at(idx) == false);
         // addr_list.at(idx) = -1;
         req_list.at(idx) = Request();
@@ -994,10 +1103,10 @@ void Window::set_ready(Request req) {
 
     for (int i = 0; i < load; i++) {
         int index = (tail + i) % depth;
-        if ((sent_list.at(index) == true) && (ready_list.at(index) == false)) {
+        if ((sent_list.at(index) == true) && (req_list.at(index).ready == false)) {
             if ((req_list.at(index).coreid == req.coreid) && (req_list.at(index).unitid == req.unitid) && (req_list.at(index).reqid == req.reqid)) {
                 hint("ready set for %s at location %d\n", req_list.at(index).c_str(), index);
-                ready_list.at(index) = true;
+                req_list.at(index).ready = true;
             }
         }
     }
@@ -1013,9 +1122,9 @@ void Window::set_ready(Request req, int mask) {
     for (int i = 0; i < load; i++) {
         int index = (tail + i) % depth;
         Request cur_req = req_list.at(index);
-        if ((sent_list.at(index) == true) && (ready_list.at(index) == false) && ((cur_req.addr & mask) == (req.addr & mask)) && (cur_req.coreid == req.coreid) && (cur_req.unitid == req.unitid)) {
+        if ((sent_list.at(index) == true) && (cur_req.ready == false) && ((cur_req.addr & mask) == (req.addr & mask)) && (cur_req.coreid == req.coreid) && (cur_req.unitid == req.unitid)) {
             hint("ready set for %s at location %d\n", cur_req.c_str(), index);
-            ready_list.at(index) = true;
+            req_list.at(index).ready = true;
         }
     }
 }
@@ -1036,8 +1145,37 @@ Trace::Trace(vector<const char *> trace_fnames) {
     warmed_up = false;
     last_trace = 0;
 }
-bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type) { //, int &req_vid, int &req_vid_dst) {
+
+std::string get_remove_first_word(std::string &line) {
     size_t pos;
+
+    // First remove extra space at the start
+    pos = line.find_first_not_of(' ');
+
+    if (pos == std::string::npos) {
+        line = "";
+        return "";
+    }
+
+    line = line.substr(pos);
+
+    // Now find the next space
+    pos = line.find(' ');
+
+    // find the word
+    std::string first_word = line.substr(0, pos);
+
+    // remove the word
+    if (pos == std::string::npos) {
+        line = "";
+    } else {
+        line = line.substr(pos);
+    }
+
+    return first_word;
+}
+
+bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type) { //, int &req_vid, int &req_vid_dst) {
     string line;
     bubble_cnt = -1;
     req_opcode = -1;
@@ -1047,6 +1185,9 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
     req_stride.clear();
     req_type = Request::Type::MAX;
     req_addr_starts.clear();
+    req_dst = -1;
+    req_src1 = -1;
+    req_src2 = -1;
 
     if ((warmed_up == true) && (warmup_complete == false)) {
         printf("returned false here\n");
@@ -1079,16 +1220,22 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
             // It's a white space
             continue;
         } else {
-            pos = line.find(' ');
-            req_opcode = line.substr(0, pos);
+            req_opcode = get_remove_first_word(line);
             bubble_cnt = 0;
-            if (pos == string::npos) {
-                assert(req_opcode.compare("initialized") == 0 || req_opcode.compare("flushed") == 0);
+            if (line.size() == 0) {
+                assert(req_opcode.compare("initialized") == 0 || req_opcode.compare("flushed") == 0 || req_opcode.find("free") != string::npos);
                 if (req_opcode.compare("initialized") == 0) {
                     assert((warmed_up == false) && (warmup_complete == false));
                     warmed_up = true;
                     req_type = Request::Type::INITIALIZED;
                     return true;
+                } else if (req_opcode.find("free") != string::npos) {
+#if (EXETYPE == DVI)
+                    req_type = Request::Type::FREE;
+                    return true;
+#else
+                    continue;
+#endif
                 }
                 continue;
             } else {
@@ -1097,95 +1244,80 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
         }
     }
 
-    pos = line.find_first_not_of(' ', pos);
-    line = line.substr(pos);
     if (req_opcode.compare("load") == 0) {
         req_type = Request::Type::READ;
-        req_addr = std::stoul(line, &pos, 16);
+        req_addr = std::stoul(get_remove_first_word(line), nullptr, 16);
     } else if (req_opcode.compare("store") == 0) {
         req_type = Request::Type::WRITE;
-        req_addr = std::stoul(line, &pos, 16);
+        req_addr = std::stoul(get_remove_first_word(line), nullptr, 16);
     } else {
         req_type = Request::Type::GPIC;
-        if (req_opcode.find("_set_") != string::npos) {
-            // It's a config intrinsic, read the value
-            req_dim = std::stoi(line, &pos, 10);
-            pos = line.find_first_not_of(' ', pos);
-            line = line.substr(pos);
-            req_value = std::stoi(line, &pos, 10);
-            // pos = line.find_first_not_of(' ', pos);
-            // line = line.substr(pos);
-        } else {
-            // It has VID
-            if ((req_opcode.find("load") != string::npos) || (req_opcode.find("store") != string::npos)) {
-                // it's a load or store, read address
-                req_addr = std::stoul(line, &pos, 16);
-                pos = line.find_first_not_of(' ', pos);
-                line = line.substr(pos);
-                req_stride.push_back(std::stoi(line, &pos, 10));
-                pos = line.find_first_not_of(' ', pos);
-                line = line.substr(pos);
-                req_stride.push_back(std::stoi(line, &pos, 10));
-                pos = line.find_first_not_of(' ', pos);
-                line = line.substr(pos);
-                req_stride.push_back(std::stoi(line, &pos, 10));
-                pos = line.find_first_not_of(' ', pos);
-                line = line.substr(pos);
-                req_stride.push_back(std::stoi(line, &pos, 10));
-                // pos = line.find_first_not_of(' ', pos);
-                // line = line.substr(pos);
-            }
-            /*
-                req_vid = std::stoi(line, &pos, 10);
-                // pos = line.find_first_not_of(' ', pos);
-                // line = line.substr(pos);
-                if (req_opcode.find("move") != string::npos) {
-                    // it's a move. read dst SA num as well.
-                    pos = line.find_first_not_of(' ', pos);
-                    line = line.substr(pos);
-                    req_vid_dst = std::stoi(line, &pos, 10);
-                
+        // general arguments
+        req_dst = std::stoul(get_remove_first_word(line));
+        std::string src1_word = get_remove_first_word(line);
+        req_src1 = std::stoul(src1_word);
+        req_src2 = std::stoul(get_remove_first_word(line));
+
+        if ((req_opcode.find("pc3_load") != string::npos) || (req_opcode.find("pc3_store") != string::npos) || (req_opcode.find("pc3_dict") != string::npos)) {
+            // memory-related arguments
+
+            req_addr = std::stoul(src1_word, nullptr, 16);
+            req_src1 = -1;
+            req_stride.push_back(std::stoul(get_remove_first_word(line)));
+            req_stride.push_back(std::stoul(get_remove_first_word(line)));
+            req_stride.push_back(std::stoul(get_remove_first_word(line)));
+            req_stride.push_back(std::stoul(get_remove_first_word(line)));
+
+            if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
+                long req_addr_start;
+                while (line.size() != 0) {
+                    req_addr_start = std::stoul(get_remove_first_word(line), nullptr, 16);
+                    req_addr_starts.push_back(req_addr_start);
                 }
-            */
+            }
+        } else {
+            // register-related arguments
+            // config
+            req_dim = std::stoi(get_remove_first_word(line));
+            // value
+            req_value = std::stoi(get_remove_first_word(line));
+            if (req_opcode.find("_set_") == string::npos) {
+                // It's not a config intrinsic, config and value must be -1
+                assert(req_dim == -1);
+                assert(req_value == -1);
+            }
         }
     }
-    pos = line.find_first_not_of(' ', pos);
-    if (pos != string::npos) {
-        // There is a bubble count
-        line = line.substr(pos);
-        bubble_cnt = std::stoul(line, &pos, 10);
+#if (EXETYPE == DVI)
+    if (req_type != Request::Type::FREE) {
+        bubble_cnt = std::stoul(get_remove_first_word(line));
     }
-    if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
-        long req_addr_start;
-        while ((pos = line.find_first_not_of(' ', pos)) != string::npos) {
-            line = line.substr(pos);
-            req_addr_start = std::stoul(line, &pos, 16);
-            req_addr_starts.push_back(req_addr_start);
-        }
-    }
+#else
+    assert(req_type != Request::Type::FREE);
+    bubble_cnt = std::stoul(get_remove_first_word(line));
+#endif
 
     if (req_type == Request::Type::GPIC) {
-        if (req_value != -1) {
+        if (req_dim != -1) {
             // it's a config instr
-            hint("get_gpic_request returned type: GPIC, opcode: %s, dim: %ld, value: %ld, bubble: %ld\n", req_opcode.c_str(), req_dim, req_value, bubble_cnt);
+            hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, dim: %ld, value: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_dim, req_value, bubble_cnt);
         } else if (req_stride.size() != 0) {
             // it's a load or store instruction
-            hint("get_gpic_request returned type: GPIC, opcode: %s, address: 0x%lx, stride: [%ld, %ld, %ld, %ld], bubble: %ld\n", req_opcode.c_str(), req_addr, req_stride[0], req_stride[1], req_stride[2], req_stride[3], bubble_cnt);
-        }
-        // else if (req_vid_dst != -1) {
-        //     // it's a move instruction
-        //     hint("get_gpic_request returned type: GPIC, opcode: %s, VID SRC: %d, VID DST: %d, bubble: %ld\n", req_opcode.c_str(), req_vid, req_vid_dst, bubble_cnt);
-        // }
-        else {
+            hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, stride: [%ld, %ld, %ld, %ld], bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, req_stride[0], req_stride[1], req_stride[2], req_stride[3], bubble_cnt);
+        } else {
             // it's a compute instruction
-            hint("get_gpic_request returned type: GPIC, opcode: %s, bubble: %ld\n", req_opcode.c_str(), bubble_cnt);
+            hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, bubble_cnt);
         }
+#if (EXETYPE == DVI)
+    } else if (req_type == Request::Type::FREE) {
+        hint("get_gpic_request returned type: FREE, opcode: %s\n", req_opcode.c_str());
+#endif
     } else if (req_type == Request::Type::READ) {
-        hint("get_gpic_request returned type: LOAD, opcode: %s, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_addr, bubble_cnt);
+        hint("get_gpic_request returned type: LOAD, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, bubble_cnt);
     } else if (req_type == Request::Type::WRITE) {
-        hint("get_gpic_request returned type: STORE, opcode: %s, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_addr, bubble_cnt);
+        hint("get_gpic_request returned type: STORE, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, bubble_cnt);
     } else if (req_type == Request::Type::INITIALIZED) {
-        hint("get_gpic_request type: INITIALIZED returned opcode: %s\n", req_opcode.c_str());
+        hint("get_gpic_request type: INITIALIZED returned opcode: %s, dst: %ld, src1: %ld, src2: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2);
     } else {
         assert(false);
     }

@@ -21,7 +21,7 @@
 #include <vector>
 
 #define MAX_GPIC_QUEUE_SIZE 32
-// #define DEBUG_CACHE
+#define DEBUG_CACHE
 
 namespace ramulator {
 class CacheSystem;
@@ -125,7 +125,7 @@ public:
 
     int stride_evaluator(long rstride, bool load);
 
-    void random_access_decoder(Request req);
+    void random_dict_access_decoder(Request req);
 
     void callbacker(Request &req);
 
@@ -165,13 +165,11 @@ protected:
 
     std::map<std::string, long> GPIC_COMPUTE_DELAY;
     std::map<std::string, long> GPIC_ACCESS_DELAY;
-    std::map<std::string, long> DC_COMPUTE_DELAY;
-    std::map<std::string, long> DC_ACCESS_DELAY;
 
     void init_intrinsic_latency();
 
     std::map<Request, std::vector<std::pair<Request, bool>>> gpic_op_to_mem_ops[MAX_GPIC_SA_NUM];
-    std::map<Request, std::vector<long>> gpic_random_to_mem_ops;
+    std::map<Request, std::vector<long>> gpic_random_dict_to_mem_ops;
     std::vector<std::pair<long, Request>> gpic_incoming_req_queue;
     std::vector<std::pair<long, Request>> gpic_compute_queue[MAX_GPIC_SA_NUM];
     long last_gpic_instruction_compute_clk[MAX_GPIC_SA_NUM];

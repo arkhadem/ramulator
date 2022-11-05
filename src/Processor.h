@@ -13,6 +13,13 @@
 #include <string>
 #include <vector>
 
+#define INORDER 0
+#define OUTORDER 1
+#define DVI 2
+#define ORACLE 3
+
+#define EXETYPE DVI
+
 namespace ramulator {
 
 class Core;
@@ -22,7 +29,7 @@ public:
     Trace(vector<const char *> trace_fname);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
-    bool get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type); //, int &req_vid, int &req_vid_dst);
+    bool get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type);
     bool get_unfiltered_request(long &bubble_cnt, long &req_addr, Request::Type &req_type);
     bool get_filtered_request(long &bubble_cnt, long &req_addr, Request::Type &req_type);
     // trace file format 2:
@@ -44,21 +51,24 @@ public:
     int depth = 128;
 
     Window(Core *core, bool out_of_order)
-        : out_of_order(out_of_order), ready_list(depth, false), sent_list(depth, false), req_list(depth, Request()), core(core) {
+        : out_of_order(out_of_order), sent_list(depth, false), req_list(depth, Request()), core(core) {
     }
     bool is_full();
     bool is_empty();
     bool no_retry();
-    void insert(bool ready, Request &req);
+    void insert(Request &req);
     void set_ready(Request req);
     void set_ready(Request req, int mask);
     long tick();
     void reset_state();
+#if (EXETYPE == DVI)
+    void add_free_instr(int data_type);
+#endif
 
 private:
     bool find_older_stores(long a_s, long a_e, Request::Type &type, int location);
     bool find_any_older_stores(int location, Request::Type type);
-    bool find_older_unsent(int location);
+    bool find_older_unsent(int location, long dst_reg);
     int get_location(int location);
     bool check_send(Request &req, int location);
     int load = 0;
@@ -66,7 +76,6 @@ private:
     int tail = 0;
     long last_id = 0;
     bool out_of_order;
-    std::vector<bool> ready_list;
     std::vector<bool> sent_list;
     // std::vector<long> addr_list;
     std::vector<Request> req_list;
@@ -107,6 +116,12 @@ public:
     bool no_shared_cache = true;
     bool gpic_mode = false;
     int gpic_level = 1;
+#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+    long free_pr = 256;
+#endif
+#if (EXETYPE == OUTORDER)
+    bool all_vr_allocated = false;
+#endif
 
     std::vector<std::shared_ptr<Cache>> caches;
     Cache *llc;
@@ -118,6 +133,8 @@ public:
     bool reached_limit = false;
 
 private:
+    bool dispatch_gpic();
+
     Trace trace;
     Window window;
     Request request;
@@ -136,6 +153,12 @@ private:
     bool more_reqs = true;
     long last = 0;
 
+    int data_type;
+
+    long req_dst = -1;
+    long req_src1 = -1;
+    long req_src2 = -1;
+
     long DC_reg;
     long VL_reg[4];
     long LS_reg[4];
@@ -150,6 +173,10 @@ private:
     MemoryBase &memory;
 
     bool warmed_up = false;
+
+#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+    bool dispatch_stalled = false;
+#endif
 };
 
 class Processor {

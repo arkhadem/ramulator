@@ -33,6 +33,7 @@ public:
         SELFREFRESH,
         EXTENSION,
         GPIC,
+        FREE,
         INITIALIZED,
         EVICT_DIRTY,
         EVICT_CLEAN,
@@ -45,6 +46,14 @@ public:
     std::vector<long> addr_ends;
     // long addr_row;
     vector<int> addr_vec;
+
+    long dst = -1;
+    long src1 = -1;
+    long src2 = -1;
+
+    bool ready = false;
+
+    long free_reg = 0;
 
     // specify which core sent this request
     int coreid = -1;
@@ -77,43 +86,45 @@ public:
     vector<bool> vector_mask;
 
     // For GPIC loads and stores
-    Request(std::string &opcode, long addr, long addr_end, std::vector<long> addr_starts, std::vector<long> addr_ends, long data_type, long stride, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : opcode(opcode), addr(addr), addr_end(addr_end), stride(stride), type(Type::GPIC), data_type(data_type), addr_starts(addr_starts), addr_ends(addr_ends), coreid(coreid), unitid(unitid), callback(callback) {
+    Request(std::string &opcode, long dst, long src1, long src2, long addr, long addr_end, std::vector<long> addr_starts, std::vector<long> addr_ends, long data_type, long stride, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
+        : opcode(opcode), addr(addr), addr_end(addr_end), stride(stride), type(Type::GPIC), data_type(data_type), addr_starts(addr_starts), addr_ends(addr_ends), dst(dst), src1(src1), src2(src2), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
     // For GPIC Computations
-    Request(std::string &opcode, long data_type, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : opcode(opcode), type(Type::GPIC), data_type(data_type), coreid(coreid), unitid(unitid), callback(callback) {
+    Request(std::string &opcode, long dst, long src1, long src2, long data_type, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
+        : opcode(opcode), type(Type::GPIC), data_type(data_type), dst(dst), src1(src1), src2(src2), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
     // For GPIC Configurations
-    Request(std::string &opcode, long dim, long value, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : opcode(opcode), dim(dim), value(value), type(Type::GPIC), coreid(coreid), unitid(unitid), callback(callback) {
+    Request(std::string &opcode, long dim, long value, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
+        : opcode(opcode), dim(dim), value(value), type(Type::GPIC), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
-
-    // // For GPIC Moves
-    // Request(std::string &opcode, long data_type, int vid, int vid_dst, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-    //     : opcode(opcode), type(Type::GPIC), vid(vid), vid_dst(vid_dst), data_type(data_type), coreid(coreid), unitid(unitid), callback(callback) {
-    //     // assert(coreid == 0);
-    //     unitid_string = UNITID_2_STRING[unitid];
-    // }
 
     // For Bubbles
     Request(long addr, Type type, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : addr(addr), type(type), data_type(8), coreid(coreid), unitid(unitid), callback([](Request &req) {}) {
+        : addr(addr), type(type), data_type(8), ready(true), coreid(coreid), unitid(unitid), callback([](Request &req) {}) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
-    // For CPU Loads and Stores
+    // For CPU Loads and Stores in GPIC mode
+    Request(long addr, Type type, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
+        : addr(addr), addr_end(addr + 7), type(type), data_type(8), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
+        // assert(coreid == 0);
+        addr_starts.push_back(addr);
+        addr_ends.push_back(addr + 7);
+        unitid_string = UNITID_2_STRING[unitid];
+    }
+
+    // For CPU Loads and Stores in other modes
     Request(long addr, Type type, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : addr(addr), addr_end(addr + 7), type(type), data_type(8), coreid(coreid), unitid(unitid), callback(callback) {
+        : addr(addr), addr_end(addr + 7), type(type), data_type(8), ready(true), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         addr_starts.push_back(addr);
         addr_ends.push_back(addr + 7);
@@ -121,13 +132,13 @@ public:
     }
 
     Request(vector<int> &addr_vec, Type type, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : type(type), addr_vec(addr_vec), coreid(coreid), unitid(unitid), callback(callback) {
+        : type(type), addr_vec(addr_vec), ready(true), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
     Request(int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : coreid(coreid), unitid(unitid) {
+        : ready(true), coreid(coreid), unitid(unitid) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
         opcode = "NONE";
@@ -178,7 +189,11 @@ public:
                 req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), dim(" << dim << "), value(" << value << ")]";
             } else if (addr != -1) {
                 // it's a load or store instruction
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), data(" << data_type << "), addr(0x" << std::hex << addr << " - 0x" << addr_end << "), starts-ends(";
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode;
+                if (dst != -1) {
+                    req_stream << "), dst(" << dst << "), src1(" << src1 << "), src2(" << src2;
+                }
+                req_stream << "), data(" << data_type << "), addr(0x" << std::hex << addr << " - 0x" << addr_end << "), starts-ends(";
                 int addr_to_print = addr_starts.size() > 8 ? 8 : addr_starts.size();
                 for (int idx = 0; idx < addr_to_print; idx++) {
                     req_stream << "0x" << addr_starts[idx] << "-0x" << addr_ends[idx];
@@ -194,16 +209,13 @@ public:
                     req_stream << ", SID(" << sid << "), min_vid(" << min_vid << "), max_vid(" << max_vid << ")";
                 }
                 req_stream << "]";
-                // } else if (vid_dst != -1) {
-                //     // it's a move instruction
-                //     req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), VID src(" << vid << "), VID dst(" << vid_dst << ")";
-                //     if (sid != -1) {
-                //         req_stream << ", SID src(" << sid << "), SID dst(" << sid_dst << ")";
-                //     }
-                //     req_stream << "]";
             } else {
                 // it's a compute instruction
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << ")"; //", VID(" << vid << ")";
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode;
+                if (dst != -1) {
+                    req_stream << "), dst(" << dst << "), src1(" << src1 << "), src2(" << src2;
+                }
+                req_stream << ")";
                 if (sid != -1) {
                     req_stream << ", SID(" << sid << "), min_vid(" << min_vid << "), max_vid(" << max_vid << ")";
                 }

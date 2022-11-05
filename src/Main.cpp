@@ -43,7 +43,6 @@ int ramulator::l3_blocksz = 1 << 6;
 int ramulator::mshr_per_bank = 64;
 float ramulator::l3_access_energy = 167.581634688;
 int ramulator::l3_gpic_core_num = 32;
-bool ramulator::gpic_out_of_order = true;
 
 void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::SILVER].l1_cache_config.size = 1 << 16;
@@ -76,7 +75,8 @@ void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::GOLD].l2_cache_config.mshr_num = 46;
     ramulator::core_configs[core_type_t::GOLD].l2_cache_config.access_energy = 20.655976172;
 
-    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
+    // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 19;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 2;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.blocksz = 1 << 6;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.mshr_num = 46;
@@ -343,9 +343,7 @@ int main(int argc, const char *argv[]) {
 
     int trace_start = 3;
 
-    bool is_warming_up = false;
     if (strstr(argv[3], "--warmup") != nullptr) {
-        is_warming_up = true;
         configs.set_warming_up();
         trace_start++;
     }
