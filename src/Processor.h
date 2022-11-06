@@ -18,7 +18,9 @@
 #define DVI 2
 #define ORACLE 3
 
-#define EXETYPE OUTORDER
+#ifndef EXETYPE
+#define EXETYPE DVI
+#endif
 
 namespace ramulator {
 
@@ -81,10 +83,10 @@ private:
     std::vector<Request> req_list;
     vector<Request> retry_list;
     Core *core;
-#if (EXETYPE == OUTORDER)
-    long allocated_pr = 0;
-    bool all_vr_allocated = false;
-#endif
+    // #if (EXETYPE == OUTORDER)
+    //     long allocated_pr = 0;
+    //     bool all_vr_allocated = false;
+    // #endif
 };
 
 class Core {
@@ -120,8 +122,10 @@ public:
     bool no_shared_cache = true;
     bool gpic_mode = false;
     int gpic_level = 1;
-#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+#if (EXETYPE == DVI)
     long free_pr = 256;
+#elif (EXETYPE == OUTORDER)
+    long free_pr = 64;
 #endif
 
     std::vector<std::shared_ptr<Cache>> caches;

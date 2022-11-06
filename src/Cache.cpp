@@ -6,17 +6,6 @@
 #include <utility>
 #include <vector>
 
-#ifndef DEBUG_CACHE
-#define debug(...)
-#else
-#define debug(...)                                   \
-    do {                                             \
-        printf("\033[36m[DEBUG] %s ", __FUNCTION__); \
-        printf(__VA_ARGS__);                         \
-        printf("\033[0m\n");                         \
-    } while (0)
-#endif
-
 namespace ramulator {
 
 Cache::Cache(int size, int assoc, int block_size,
@@ -24,8 +13,8 @@ Cache::Cache(int size, int assoc, int block_size,
              std::shared_ptr<CacheSystem> cachesys, int gpic_core_num, int core_id)
     : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), gpic_core_num(gpic_core_num) {
 
-    debug("level %d size %d assoc %d block_size %d\n",
-          int(level), size, assoc, block_size);
+    hint("level %d size %d assoc %d block_size %d\n",
+         int(level), size, assoc, block_size);
 
     if (level == Level::L1) {
         level_string = "L1";
@@ -72,9 +61,9 @@ Cache::Cache(int size, int assoc, int block_size,
     VM_reg[3] = vector<bool>(1);
     VM_reg[3][0] = true;
 
-    debug("index_offset %d", index_offset);
-    debug("index_mask 0x%x", index_mask);
-    debug("tag_offset %d", tag_offset);
+    hint("index_offset %d", index_offset);
+    hint("index_mask 0x%x", index_mask);
+    hint("tag_offset %d", tag_offset);
 
     init_intrinsic_latency();
 
@@ -212,8 +201,6 @@ int Cache::vid_to_sid(int vid, int base = 0) {
 }
 
 bool Cache::check_full_queue(Request req) {
-    // if (req.vid == -1) {
-    // assert(req.opcode.find("move") == string::npos);
     for (int vid = 0; vid < VC_reg; vid += V_PER_SA) {
         for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
             if (gpic_compute_queue[vid_to_sid(vid, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
@@ -221,21 +208,6 @@ bool Cache::check_full_queue(Request req) {
             }
         }
     }
-    // } else {
-    //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
-    //         if (gpic_instruction_queue[vid_to_sid(req.vid, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
-    //             return false;
-    //         }
-    //     }
-    // }
-
-    // if (req.opcode.find("move") != string::npos) {
-    //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
-    //         if (gpic_instruction_queue[vid_to_sid(req.vid_dst, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
-    //             return false;
-    //         }
-    //     }
-    // }
     return true;
 }
 
@@ -287,6 +259,7 @@ void Cache::intrinsic_computer(Request req) {
     if ((compute_delay + access_delay) != 0) {
         hint("%s set for compute in %ld clock cycles\n", req.c_str(), compute_delay + access_delay);
         gpic_compute_queue[req.sid].push_back(make_pair(compute_delay + access_delay, req));
+        hint("Compute queue [%d] added size: %d\n", req.sid, (int)gpic_compute_queue[req.sid].size());
         GPIC_compute_total_energy += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
         GPIC_compute_comp_total_energy += ((float)compute_delay * 15.4) * (float)bitlines;
         GPIC_compute_rdwr_total_energy += ((float)access_delay * 8.6) * (float)bitlines;
@@ -448,7 +421,6 @@ void Cache::random_dict_access_decoder(Request req) {
 }
 
 bool Cache::memory_controller(Request req) {
-    printf("%s\n", req.c_str());
     if (req.opcode.find("_set_") != string::npos) {
         // it's a config GPIC instruction
         if (req.opcode.find("mask") != string::npos) {
@@ -536,7 +508,7 @@ bool Cache::memory_controller(Request req) {
 
 bool Cache::send(Request req) {
     if (req.type == Request::Type::GPIC) {
-        debug("level %s received %s", level_string.c_str(), req.c_str());
+        hint("level %s received %s", level_string.c_str(), req.c_str());
 
         if (gpic_incoming_req_queue.size() >= MAX_GPIC_QUEUE_SIZE)
             return false;
@@ -547,9 +519,9 @@ bool Cache::send(Request req) {
         return true;
     }
 
-    debug("level %s received %s, index %d, tag %ld\n",
-          level_string.c_str(), req.c_str(), get_index(req.addr),
-          get_tag(req.addr));
+    hint("level %s received %s, index %d, tag %ld\n",
+         level_string.c_str(), req.c_str(), get_index(req.addr),
+         get_tag(req.addr));
 
     cache_total_access++;
     if (req.type == Request::Type::WRITE) {
@@ -607,15 +579,15 @@ bool Cache::send(Request req) {
 
         cachesys->hit_list.push_back(make_pair(cachesys->clk + latency_each[int(level)] + invalidate_time, req));
 
-        debug("hit, update timestamp %ld", cachesys->clk);
-        debug("hit finish time %ld", cachesys->clk + latency_each[int(level)]);
+        hint("hit, update timestamp %ld", cachesys->clk);
+        hint("hit finish time %ld", cachesys->clk + latency_each[int(level)]);
 
         // Reading/writing block_size bytes from cache for a hit
         cache_access_energy += access_energy;
 
         return true;
     } else {
-        debug("%s missed @level %d", req.c_str(), (level));
+        hint("%s missed @level %d", req.c_str(), (level));
         cache_total_miss++;
         if (req.type == Request::Type::WRITE) {
             cache_write_miss++;
@@ -636,7 +608,7 @@ bool Cache::send(Request req) {
         assert(req.type == Request::Type::READ);
         std::shared_ptr<Line> mshr_entry_line = hit_mshr(req.addr);
         if (mshr_entry_line != nullptr) {
-            debug("%s hitted mshr", req.c_str());
+            hint("%s hitted mshr", req.c_str());
             cache_mshr_hit++;
             mshr_entry_line->dirty = (dirty || mshr_entry_line->dirty);
             return true;
@@ -648,7 +620,7 @@ bool Cache::send(Request req) {
             // When no MSHR entries available, the miss request
             // is stalling.
             cache_mshr_unavailable++;
-            debug("no mshr entry available");
+            hint("no mshr entry available");
             return false;
         }
 
@@ -773,7 +745,7 @@ bool Cache::invalidate(long addr, std::pair<long, bool> &result) {
         if (line_shared_ptr->lock) {
             return false;
         }
-        debug("invalidate 0x%lx @ level %d", addr, int(level));
+        hint("invalidate 0x%lx @ level %d", addr, int(level));
         dirty = line_shared_ptr->dirty;
         remove_line(&lines, line_shared_ptr);
 
@@ -819,11 +791,11 @@ bool Cache::invalidate(long addr, std::pair<long, bool> &result) {
 }
 
 bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_ptr<Cache::Line> victim) {
-    debug("level %d miss evict victim 0x%lx", int(level), victim->addr);
+    hint("level %d miss evict victim 0x%lx", int(level), victim->addr);
     // Before anything, check if this address exists in lower cache
     if (!is_last_level) {
         if (lower_cache->exists_addr(victim->addr) == false) {
-            debug("line is not received by the lower cahce yet, returning false by evict\n");
+            hint("line is not received by the lower cahce yet, returning false by evict\n");
             return false;
         }
     }
@@ -845,7 +817,7 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
         }
     }
 
-    debug("invalidate delay: %ld, dirty: %s", invalidate_time, dirty ? "true" : "false");
+    hint("invalidate delay: %ld, dirty: %s", invalidate_time, dirty ? "true" : "false");
 
     if (!is_last_level) {
         // not LLC eviction
@@ -863,10 +835,10 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
             // Reading block_size for eviction from LLC and writing to memory
             cache_access_energy += access_energy;
 
-            debug("inject one write request to memory system "
-                  "addr 0x%lx, invalidate time %ld, issue time %ld",
-                  write_req.addr, invalidate_time,
-                  cachesys->clk + invalidate_time + latency_each[int(level)]);
+            hint("inject one write request to memory system "
+                 "addr 0x%lx, invalidate time %ld, issue time %ld",
+                 write_req.addr, invalidate_time,
+                 cachesys->clk + invalidate_time + latency_each[int(level)]);
         }
     }
 
@@ -998,7 +970,7 @@ bool Cache::need_eviction(std::vector<std::shared_ptr<Cache::Line>> &lines, long
 }
 
 void Cache::callback(Request &req) {
-    debug("level %d", int(level));
+    hint("level %d", int(level));
     hint("%s received in %s\n", req.c_str(), level_string.c_str());
 
     // Remove related MSHR entries
@@ -1083,6 +1055,8 @@ void Cache::callback(Request &req) {
                 callbacker(gpic_req);
                 gpic_op_to_mem_ops[sid].erase(gpic_req);
                 gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
+                hint("Compute queue [%d] removed size: %d\n", sid, (int)gpic_compute_queue[sid].size());
+
                 last_gpic_instruction_compute_clk[sid] = -1;
                 last_gpic_instruction_computed[sid] = false;
                 last_gpic_instruction_sent[sid] = false;
@@ -1257,6 +1231,7 @@ void Cache::tick() {
                     hint("16- %s instruction %s completed\n", level_string.c_str(), req.c_str());
                     callbacker(req);
                     gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
+                    hint("Compute queue [%d] removed size: %d\n", sid, (int)gpic_compute_queue[sid].size());
                     last_gpic_instruction_compute_clk[sid] = -1;
                     last_gpic_instruction_computed[sid] = false;
                     last_gpic_instruction_sent[sid] = false;
@@ -1334,7 +1309,7 @@ void Cache::tick() {
 
             if (gpic_compute_queue[sid].size() == 0) {
                 // There is no instruction ready for execute
-                // hint("%s GPIC %d HOST_DEVICE...\n", level_string.c_str(), sid);
+                hint("%s GPIC %d HOST_DEVICE...\n", level_string.c_str(), sid);
                 GPIC_host_device_total_cycles++;
                 GPIC_host_device_cycles[sid]++;
             } else {
@@ -1464,7 +1439,7 @@ void Cache::reset_state() {
 }
 
 void CacheSystem::tick() {
-    debug("clk %ld", clk);
+    hint("clk %ld", clk);
 
     ++clk;
 
@@ -1473,12 +1448,12 @@ void CacheSystem::tick() {
     while (it != wait_list.end() && clk >= it->first) {
         if (!send_memory(it->second)) {
 
-            debug("failed sending %s to memory", (it->second).c_str());
+            hint("failed sending %s to memory", (it->second).c_str());
 
             ++it;
         } else {
 
-            debug("complete req: %s", (it->second).c_str());
+            hint("complete req: %s", (it->second).c_str());
 
             it = wait_list.erase(it);
         }
@@ -1490,7 +1465,7 @@ void CacheSystem::tick() {
         if (clk >= it->first) {
             it->second.callback(it->second);
 
-            debug("finish hit: %s", (it->second).c_str());
+            hint("finish hit: %s", (it->second).c_str());
 
             it = hit_list.erase(it);
         } else {
@@ -1504,14 +1479,14 @@ void CacheSystem::reset_state() {
     clk = 0;
     auto it = wait_list.begin();
     while (it != wait_list.end()) {
-        debug("%s\n", it->second.c_str());
+        hint("%s\n", it->second.c_str());
         ++it;
     }
     assert(wait_list.size() == 0);
 
     it = hit_list.begin();
     while (it != hit_list.end()) {
-        debug("%s\n", it->second.c_str());
+        hint("%s\n", it->second.c_str());
         ++it;
     }
     assert(hit_list.size() == 0);

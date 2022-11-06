@@ -536,7 +536,7 @@ void Core::tick() {
                         }
                     } else {
                         // it's a computational GPIC instruction
-                        request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, true, callback, id, Request::UnitID::CORE);
+                        request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
 
                         if (dispatch_gpic() == false) {
                             break;
@@ -671,8 +671,12 @@ void Core::reset_state() {
     req_src1 = -1;
     req_src2 = -1;
 #if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
-    free_pr = 256;
     dispatch_stalled = false;
+#endif
+#if (EXETYPE == DVI)
+    free_pr = 256;
+#elif (EXETYPE == OUTORDER)
+    free_pr = 64;
 #endif
     more_reqs = true;
     last = 0;
@@ -1053,27 +1057,29 @@ long Window::tick() {
 
 #if (EXETYPE == DVI)
         // add physical registers to free list
-        core->free_pr += req_list.at(tail).free_reg;
-        if (req_list.at(tail).free_reg != 0)
+        if (req_list.at(tail).free_reg != 0) {
+            core->free_pr += req_list.at(tail).free_reg;
+            assert(core->free_pr <= 256);
             hint("%ld registers freed\n", req_list.at(tail).free_reg);
+        }
 #elif (EXETYPE == OUTORDER)
         // add physical registers to free list
         if (req_list.at(tail).dst != -1) {
-            allocated_pr += req_list.at(tail).data_type;
-            if (allocated_pr > 176) {
-                hint("Enough VR allocated, start freeing PRs.\n");
-                all_vr_allocated = true;
-            }
-            if (all_vr_allocated) {
-                assert((req_list.at(tail).data_type != 0) && (req_list.at(tail).data_type % 8 == 0));
-                core->free_pr += req_list.at(tail).data_type;
-                hint("%ld registers freed\n", req_list.at(tail).data_type);
-            }
+            // allocated_pr += req_list.at(tail).data_type;
+            // if (allocated_pr > 176) {
+            //     hint("Enough VR allocated, start freeing PRs.\n");
+            //     all_vr_allocated = true;
+            // }
+            // if (all_vr_allocated) {
+            assert((req_list.at(tail).data_type != 0) && (req_list.at(tail).data_type % 8 == 0));
+            core->free_pr += req_list.at(tail).data_type;
+            assert(core->free_pr <= 256);
+            hint("%ld registers freed\n", req_list.at(tail).data_type);
+            // }
         }
 #endif
         // remove all data from tail
         sent_list.at(tail) = false;
-        // addr_list.at(tail) = -1;
         req_list.at(tail) = Request();
 
         tail = (tail + 1) % depth;
@@ -1105,10 +1111,10 @@ void Window::reset_state() {
     head = 0;
     tail = 0;
     last_id = 0;
-#if (EXETYPE == OUTORDER)
-    allocated_pr = 0;
-    all_vr_allocated = false;
-#endif
+    // #if (EXETYPE == OUTORDER)
+    //     allocated_pr = 0;
+    //     all_vr_allocated = false;
+    // #endif
 
     for (int idx = 0; idx < depth; idx++) {
         assert(sent_list.at(idx) == false);

@@ -10,7 +10,7 @@
 #define MAX_CORE_ID 16
 #define MAX_GPIC_SA_NUM 32
 
-#define DEBUG
+// #define DEBUG
 
 #ifndef DEBUG
 #define hint(...)
