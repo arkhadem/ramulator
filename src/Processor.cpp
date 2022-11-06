@@ -282,6 +282,12 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
         .desc("Retired instruction number when record cycle number. (Only valid when expected limit instruction number is non zero in config file.)")
         .precision(0);
 
+#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+    stalled_cycs.name("stall_cycs_core_" + to_string(id))
+        .desc("Record cycle number for dispatch stalls.")
+        .precision(0);
+#endif
+
     memory_access_cycles.name("memory_access_cycles_core_" + to_string(id))
         .desc("memory access cycles in memory time domain")
         .precision(0);
@@ -337,17 +343,12 @@ bool Core::dispatch_gpic() {
             hint("%d registers allocated for request %s\n", data_type, request.c_str());
             window.insert(request);
             dispatch_stalled = false;
-#if (EXETYPE == OUTORDER)
-            if (free_pr <= 80) {
-                hint("Enough VR allocated, start freeing PRs.");
-                all_vr_allocated = true;
-            }
-#endif
             return true;
         } else {
             // we have to stall the dispatch
             hint("No %d physical registers (%ld) for request %s, waiting...\n", data_type, free_pr, request.c_str());
             dispatch_stalled = true;
+            stalled_cycs += 1;
             return false;
         }
     } else {
@@ -652,6 +653,9 @@ void Core::reset_state() {
 
     record_cycs = 0;
     record_insts = 0;
+#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+    stalled_cycs = 0;
+#endif
 
     memory_access_cycles = 0;
     cpu_inst = 0;
@@ -669,9 +673,6 @@ void Core::reset_state() {
 #if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
     free_pr = 256;
     dispatch_stalled = false;
-#endif
-#if (EXETYPE == OUTORDER)
-    all_vr_allocated = false;
 #endif
     more_reqs = true;
     last = 0;
@@ -845,7 +846,7 @@ bool Window::find_older_unsent(int location, long dst_reg) {
     while (idx != location) {
         Request curr_req = req_list.at(idx);
         if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
-            if ((dst_reg == curr_req.src1) || (dst_reg == curr_req.src1))
+            if ((dst_reg == curr_req.src1) || (dst_reg == curr_req.src2))
                 return true;
         }
         idx = (idx + 1) % depth;
@@ -893,7 +894,7 @@ bool Window::check_send(Request &req, int location) {
                     if (!core->gpic_send(req)) {
                         retry_list.push_back(req);
                     } else {
-                        op_trace << core->clk << " core controller " << req.opcode << endl;
+                        op_trace << core->clk << " core controller " << req.opcode << " " << req.dst << endl;
                     }
                     return true;
                 }
@@ -904,7 +905,7 @@ bool Window::check_send(Request &req, int location) {
                 if (!core->gpic_send(req)) {
                     retry_list.push_back(req);
                 } else {
-                    op_trace << core->clk << " core controller " << req.opcode << endl;
+                    op_trace << core->clk << " core controller " << req.opcode << " " << req.dst << endl;
                 }
                 return true;
             }
@@ -986,7 +987,15 @@ long Window::tick() {
         hint("1- CORE sending %s to cache\n", retry_list.at(0).c_str());
         if (retry_list.at(0).type == Request::Type::GPIC) {
             if (core->gpic_send(retry_list.at(0))) {
-                op_trace << core->clk << " core controller " << retry_list.at(0).opcode << endl;
+                op_trace << core->clk << " core controller " << retry_list.at(0).opcode << " ";
+                if (retry_list.at(0).dst != -1) {
+                    op_trace << retry_list.at(0).dst;
+                } else if (retry_list.at(0).addr != -1) {
+                    op_trace << retry_list.at(0).addr;
+                } else {
+                    op_trace << "-1";
+                }
+                op_trace << endl;
                 retry_list.erase(retry_list.begin());
             } else {
                 break;
@@ -1017,7 +1026,15 @@ long Window::tick() {
                 if (!core->gpic_send(req)) {
                     retry_list.push_back(req);
                 } else {
-                    op_trace << core->clk << " core controller " << req.opcode << endl;
+                    op_trace << core->clk << " core controller " << req.opcode << " ";
+                    if (req.dst != -1) {
+                        op_trace << req.dst;
+                    } else if (req.addr != -1) {
+                        op_trace << req.addr;
+                    } else {
+                        op_trace << "-1";
+                    }
+                    op_trace << endl;
                 }
             } else {
                 assert((req.type == Request::Type::READ) || (req.type == Request::Type::WRITE));
@@ -1041,8 +1058,13 @@ long Window::tick() {
             hint("%ld registers freed\n", req_list.at(tail).free_reg);
 #elif (EXETYPE == OUTORDER)
         // add physical registers to free list
-        if (core->all_vr_allocated) {
-            if (req_list.at(tail).dst != -1) {
+        if (req_list.at(tail).dst != -1) {
+            allocated_pr += req_list.at(tail).data_type;
+            if (allocated_pr > 176) {
+                hint("Enough VR allocated, start freeing PRs.\n");
+                all_vr_allocated = true;
+            }
+            if (all_vr_allocated) {
                 assert((req_list.at(tail).data_type != 0) && (req_list.at(tail).data_type % 8 == 0));
                 core->free_pr += req_list.at(tail).data_type;
                 hint("%ld registers freed\n", req_list.at(tail).data_type);
@@ -1083,6 +1105,10 @@ void Window::reset_state() {
     head = 0;
     tail = 0;
     last_id = 0;
+#if (EXETYPE == OUTORDER)
+    allocated_pr = 0;
+    all_vr_allocated = false;
+#endif
 
     for (int idx = 0; idx < depth; idx++) {
         assert(sent_list.at(idx) == false);

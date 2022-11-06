@@ -41,7 +41,7 @@ public:
     } type;
     int sid = -1;
     int sid_dst = -1;
-    long data_type;
+    long data_type = 0;
     std::vector<long> addr_starts;
     std::vector<long> addr_ends;
     // long addr_row;

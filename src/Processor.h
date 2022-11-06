@@ -18,7 +18,7 @@
 #define DVI 2
 #define ORACLE 3
 
-#define EXETYPE DVI
+#define EXETYPE OUTORDER
 
 namespace ramulator {
 
@@ -81,6 +81,10 @@ private:
     std::vector<Request> req_list;
     vector<Request> retry_list;
     Core *core;
+#if (EXETYPE == OUTORDER)
+    long allocated_pr = 0;
+    bool all_vr_allocated = false;
+#endif
 };
 
 class Core {
@@ -119,15 +123,16 @@ public:
 #if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
     long free_pr = 256;
 #endif
-#if (EXETYPE == OUTORDER)
-    bool all_vr_allocated = false;
-#endif
 
     std::vector<std::shared_ptr<Cache>> caches;
     Cache *llc;
 
     ScalarStat record_cycs;
     ScalarStat record_insts;
+#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+    ScalarStat stalled_cycs;
+#endif
+
     long expected_limit_insts;
     // This is set true iff expected number of instructions has been executed or all instructions are executed.
     bool reached_limit = false;
