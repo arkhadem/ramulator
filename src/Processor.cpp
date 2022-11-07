@@ -1295,10 +1295,14 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
 
             req_addr = std::stoul(src1_word, nullptr, 16);
             req_src1 = -1;
-            req_stride.insert(req_stride.begin(), std::stoul(get_remove_first_word(line)));
-            req_stride.insert(req_stride.begin(), std::stoul(get_remove_first_word(line)));
-            req_stride.insert(req_stride.begin(), std::stoul(get_remove_first_word(line)));
-            req_stride.insert(req_stride.begin(), std::stoul(get_remove_first_word(line)));
+            long stride3 = std::stoul(get_remove_first_word(line));
+            long stride2 = std::stoul(get_remove_first_word(line));
+            long stride1 = std::stoul(get_remove_first_word(line));
+            long stride0 = std::stoul(get_remove_first_word(line));
+            req_stride.push_back(stride0);
+            req_stride.push_back(stride1);
+            req_stride.push_back(stride2);
+            req_stride.push_back(stride3);
 
             if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
                 long req_addr_start;
