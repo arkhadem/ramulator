@@ -417,7 +417,7 @@ void Cache::random_dict_access_decoder(Request req) {
     }
     assert(locked == false);
     locked = true;
-    hint("locking...");
+    hint("locking...\n");
 }
 
 bool Cache::memory_controller(Request req) {
@@ -508,7 +508,7 @@ bool Cache::memory_controller(Request req) {
 
 bool Cache::send(Request req) {
     if (req.type == Request::Type::GPIC) {
-        hint("level %s received %s", level_string.c_str(), req.c_str());
+        hint("level %s received %s\n", level_string.c_str(), req.c_str());
 
         if (gpic_incoming_req_queue.size() >= MAX_GPIC_QUEUE_SIZE)
             return false;
@@ -567,7 +567,7 @@ bool Cache::send(Request req) {
         // #ifdef DEBUG
         //         hint("1- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), req.addr, get_index(req.addr), get_tag(req.addr));
         //         if (line == cache_lines.end()) {
-        //             hint("No line found for the aforementioned idx and tag");
+        //             hint("No line found for the aforementioned idx and tag\n");
         //         } else {
         //             std::vector<std::shared_ptr<Line>> liinees;
         //             liinees = line->second;
@@ -579,15 +579,15 @@ bool Cache::send(Request req) {
 
         cachesys->hit_list.push_back(make_pair(cachesys->clk + latency_each[int(level)] + invalidate_time, req));
 
-        hint("hit, update timestamp %ld", cachesys->clk);
-        hint("hit finish time %ld", cachesys->clk + latency_each[int(level)]);
+        hint("hit, update timestamp %ld\n", cachesys->clk);
+        hint("hit finish time %ld\n", cachesys->clk + latency_each[int(level)]);
 
         // Reading/writing block_size bytes from cache for a hit
         cache_access_energy += access_energy;
 
         return true;
     } else {
-        hint("%s missed @level %d", req.c_str(), (level));
+        hint("%s missed @level %d\n", req.c_str(), (level));
         cache_total_miss++;
         if (req.type == Request::Type::WRITE) {
             cache_write_miss++;
@@ -608,7 +608,7 @@ bool Cache::send(Request req) {
         assert(req.type == Request::Type::READ);
         std::shared_ptr<Line> mshr_entry_line = hit_mshr(req.addr);
         if (mshr_entry_line != nullptr) {
-            hint("%s hitted mshr", req.c_str());
+            hint("%s hitted mshr\n", req.c_str());
             cache_mshr_hit++;
             mshr_entry_line->dirty = (dirty || mshr_entry_line->dirty);
             return true;
@@ -620,7 +620,7 @@ bool Cache::send(Request req) {
             // When no MSHR entries available, the miss request
             // is stalling.
             cache_mshr_unavailable++;
-            hint("no mshr entry available");
+            hint("no mshr entry available\n");
             return false;
         }
 
@@ -672,7 +672,7 @@ void Cache::evictline(long addr, bool dirty) {
         std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
         cache_line = cache_lines.find(get_index(addr));
         if (cache_line == cache_lines.end()) {
-            hint("No line found for the aforementioned idx and tag");
+            hint("No line found for the aforementioned idx and tag\n");
         } else {
             std::vector<std::shared_ptr<Line>> liinees;
             liinees = cache_line->second;
@@ -694,7 +694,7 @@ void Cache::evictline(long addr, bool dirty) {
     //     std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
     //     cache_line = cache_lines.find(get_index(addr));
     //     if (cache_line == cache_lines.end()) {
-    //         hint("No line found for the aforementioned idx and tag");
+    //         hint("No line found for the aforementioned idx and tag\n");
     //     } else {
     //         std::vector<std::shared_ptr<Line>> liinees;
     //         liinees = cache_line->second;
@@ -709,7 +709,7 @@ void Cache::evictline(long addr, bool dirty) {
     // #ifdef DEBUG
     //     hint("2- %s: Erased addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), line_shared_ptr->addr, get_index(line_shared_ptr->addr), get_tag(line_shared_ptr->addr));
     //     if (cache_line == cache_lines.end()) {
-    //         hint("No line found for the aforementioned idx and tag");
+    //         hint("No line found for the aforementioned idx and tag\n");
     //     } else {
     //         std::vector<std::shared_ptr<Line>> liinees;
     //         liinees = cache_line->second;
@@ -754,7 +754,7 @@ bool Cache::invalidate(long addr, std::pair<long, bool> &result) {
         //         std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
         //         cache_line = cache_lines.find(get_index(addr));
         //         if (cache_line == cache_lines.end()) {
-        //             hint("No line found for the aforementioned idx and tag");
+        //             hint("No line found for the aforementioned idx and tag\n");
         //         } else {
         //             std::vector<std::shared_ptr<Line>> liinees;
         //             liinees = cache_line->second;
@@ -791,7 +791,7 @@ bool Cache::invalidate(long addr, std::pair<long, bool> &result) {
 }
 
 bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_ptr<Cache::Line> victim) {
-    hint("level %d miss evict victim 0x%lx", int(level), victim->addr);
+    hint("level %d miss evict victim 0x%lx\n", int(level), victim->addr);
     // Before anything, check if this address exists in lower cache
     if (!is_last_level) {
         if (lower_cache->exists_addr(victim->addr) == false) {
@@ -817,7 +817,7 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
         }
     }
 
-    hint("invalidate delay: %ld, dirty: %s", invalidate_time, dirty ? "true" : "false");
+    hint("invalidate delay: %ld, dirty: %s\n", invalidate_time, dirty ? "true" : "false");
 
     if (!is_last_level) {
         // not LLC eviction
@@ -836,7 +836,7 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
             cache_access_energy += access_energy;
 
             hint("inject one write request to memory system "
-                 "addr 0x%lx, invalidate time %ld, issue time %ld",
+                 "addr 0x%lx, invalidate time %ld, issue time %ld\n",
                  write_req.addr, invalidate_time,
                  cachesys->clk + invalidate_time + latency_each[int(level)]);
         }
@@ -856,7 +856,7 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
     //     std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
     //     cache_line = cache_lines.find(get_index(victim->addr));
     //     if (cache_line == cache_lines.end()) {
-    //         hint("No line found for the aforementioned idx and tag");
+    //         hint("No line found for the aforementioned idx and tag\n");
     //     } else {
     //         std::vector<std::shared_ptr<Line>> liinees;
     //         liinees = cache_line->second;
@@ -924,7 +924,7 @@ std::shared_ptr<Cache::Line> Cache::allocate_line(std::vector<std::shared_ptr<Ca
     //     std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
     //     cache_line = cache_lines.find(get_index(addr));
     //     if (cache_line == cache_lines.end()) {
-    //         hint("No line found for the aforementioned idx and tag");
+    //         hint("No line found for the aforementioned idx and tag\n");
     //     } else {
     //         std::vector<std::shared_ptr<Line>> liinees;
     //         liinees = cache_line->second;
@@ -1439,7 +1439,7 @@ void Cache::reset_state() {
 }
 
 void CacheSystem::tick() {
-    hint("clk %ld", clk);
+    hint("clk %ld\n", clk);
 
     ++clk;
 
