@@ -1,5 +1,7 @@
 #include "Cache.h"
 #include "Config.h"
+#include "Processor.h"
+#include "Request.h"
 #include <cassert>
 #include <cstdio>
 #include <memory>
@@ -411,7 +413,13 @@ void Cache::random_dict_access_decoder(Request req) {
 
         // send it
         hint("10- %s sending %s to %s\n", level_string.c_str(), mem_req.c_str(), level_string.c_str());
-        if (send(mem_req) == false) {
+        bool should = should_send(mem_req);
+        bool sent = false;
+        if (should == true) {
+            sent = send(mem_req);
+        }
+        if ((should == false) || (sent == false)) {
+            hint("4- should (%d) or sent (%d) is false!\n", should, sent);
             self_retry_list.push_back(mem_req);
         }
     }
@@ -559,6 +567,8 @@ bool Cache::send(Request req) {
             }
         }
 
+        hint("%s hitted @level %d\n", req.c_str(), (level));
+
         std::shared_ptr<Cache::Line> line = add_line(&lines, req.addr, false, dirty);
 
 #ifdef DEBUG
@@ -666,6 +676,29 @@ bool Cache::send(Request req) {
         }
         return true;
     }
+}
+
+bool Cache::should_send(Request req) {
+
+    // If it's a hit, return true
+    if (cache_lines.find(get_index(req.addr)) != cache_lines.end()) {
+        std::shared_ptr<Cache::Line> tmp;
+        if (is_hit(cache_lines[get_index(req.addr)], req.addr, &tmp)) {
+            return true;
+        }
+    }
+
+    // Look it up in MSHR entries
+    std::shared_ptr<Line> mshr_entry_line = hit_mshr(req.addr);
+    if (mshr_entry_line != nullptr) {
+        return true;
+    }
+
+    if (mshr_entries.size() != mshr_entry_num) {
+        return true;
+    }
+
+    return false;
 }
 
 void Cache::evictline(long addr, bool dirty) {
@@ -825,7 +858,9 @@ bool Cache::evict(std::vector<std::shared_ptr<Cache::Line>> *lines, std::shared_
     if (higher_cache.size()) {
         for (auto hc : higher_cache) {
             std::pair<long, bool> result;
-            assert(hc->invalidate(addr, result));
+            if (hc->invalidate(addr, result) == false) {
+                return false;
+            }
             invalidate_time = max(invalidate_time,
                                   result.first + (result.second ? latency_each[int(level)] : 0));
             dirty = dirty || result.second || victim->dirty;
@@ -1095,8 +1130,13 @@ void Cache::callback(Request &req) {
                         continue;
 
                     hint("15- %s sending %s to %s\n", level_string.c_str(), gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first.c_str(), level_string.c_str());
-                    if (send(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first) == false) {
-                        hint("mshr is full, breaking after adding to self retry list!\n");
+                    bool should = should_send(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first);
+                    bool sent = false;
+                    if (should == true) {
+                        sent = send(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first);
+                    }
+                    if ((should == false) || (sent == false)) {
+                        hint("1- should (%d) or sent (%d) is false!\n", should, sent);
                         self_retry_list.push_back(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first);
                         gpic_op_to_mem_ops[sid][gpic_req][mem_idx].second = true;
                         break;
@@ -1160,11 +1200,16 @@ void Cache::tick() {
 
     while (self_retry_list.size() != 0) {
         hint("12- %s sending %s to %s\n", level_string.c_str(), self_retry_list[0].c_str(), level_string.c_str());
-        if (send(self_retry_list[0])) {
-            self_retry_list.erase(self_retry_list.begin());
-        } else {
+        bool should = should_send(self_retry_list[0]);
+        bool sent = false;
+        if (should == true) {
+            sent = send(self_retry_list[0]);
+        }
+        if ((should == false) || (sent == false)) {
+            hint("2- should (%d) or sent (%d) is false!\n", should, sent);
             break;
         }
+        self_retry_list.erase(self_retry_list.begin());
     }
 
     if (locked == false) {
@@ -1250,7 +1295,14 @@ void Cache::tick() {
                         // send the until mshr is full
                         for (int mem_idx = 0; mem_idx < gpic_op_to_mem_ops[sid][req].size(); mem_idx++) {
                             hint("15- %s sending %s to %s\n", level_string.c_str(), gpic_op_to_mem_ops[sid][req][mem_idx].first.c_str(), level_string.c_str());
-                            if (send(gpic_op_to_mem_ops[sid][req][mem_idx].first) == false) {
+
+                            bool should = should_send(gpic_op_to_mem_ops[sid][req][mem_idx].first);
+                            bool sent = false;
+                            if (should == true) {
+                                sent = send(gpic_op_to_mem_ops[sid][req][mem_idx].first);
+                            }
+                            if ((should == false) || (sent == false)) {
+                                hint("3- should (%d) or sent (%d) is false!\n", should, sent);
                                 if (mem_idx == 0) {
                                     self_retry_list.push_back(gpic_op_to_mem_ops[sid][req][mem_idx].first);
                                     gpic_op_to_mem_ops[sid][req][mem_idx].second = true;

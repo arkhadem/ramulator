@@ -196,7 +196,9 @@ void Processor::reset_stats() {
 Core::Core(const Config &configs, int coreid, core_type_t core_type,
            const std::vector<const char *> &trace_fnames, function<bool(Request)> send_next,
            Cache *llc, std::shared_ptr<CacheSystem> cachesys, MemoryBase &memory)
-    : id(coreid), core_type(core_type), ipc(core_configs[core_type].ipc), gpic_core_num(core_configs[core_type].gpic_core_num), out_of_order(core_configs[core_type].out_of_order), no_core_caches(!configs.has_core_caches()), no_shared_cache(!configs.has_l3_cache()), gpic_mode(configs.is_gpic()), llc(llc), trace(trace_fnames), window(this, core_configs[core_type].out_of_order), request(coreid, Request::UnitID::CORE), memory(memory) {
+    : id(coreid), core_type(core_type), ipc(core_configs[core_type].ipc), gpic_core_num(core_configs[core_type].gpic_core_num), out_of_order(core_configs[core_type].out_of_order), no_core_caches(!configs.has_core_caches()), no_shared_cache(!configs.has_l3_cache()), gpic_mode(configs.is_gpic()), llc(llc), trace(trace_fnames), window(this, core_configs[core_type].out_of_order, core_configs[core_type].ipc), request(coreid, Request::UnitID::CORE), memory(memory) {
+
+    printf("core type: %d, ipc: %d\n", core_type, ipc);
 
     assert(coreid < MAX_CORE_ID);
     // set expected limit instruction for calculating weighted speedup
@@ -386,7 +388,7 @@ void Core::tick() {
             return;
         }
 
-        while ((inserted < window.ipc) && (window.is_full() == false)) {
+        while ((inserted < ipc) && (window.is_full() == false)) {
 #if (EXETYPE == DVI) || (EXETYPE == OUTORDER)
             if (dispatch_stalled == true) {
                 if (dispatch_gpic() == false) {
@@ -570,7 +572,7 @@ void Core::tick() {
         }
     } else {
         while (bubble_cnt > 0) {
-            if (inserted == window.ipc)
+            if (inserted == ipc)
                 return;
             if (window.is_full())
                 return;
@@ -591,7 +593,7 @@ void Core::tick() {
 
         if (req_type == Request::Type::READ) {
             // read request
-            if (inserted == window.ipc)
+            if (inserted == ipc)
                 return;
             if (window.is_full())
                 return;

@@ -6,6 +6,7 @@
 #include "Memory.h"
 #include "Request.h"
 #include "Statistics.h"
+#include <cstdio>
 #include <ctype.h>
 #include <fstream>
 #include <functional>
@@ -49,11 +50,11 @@ private:
 
 class Window {
 public:
-    int ipc = 4;
     int depth = 128;
 
-    Window(Core *core, bool out_of_order)
-        : out_of_order(out_of_order), sent_list(depth, false), req_list(depth, Request()), core(core) {
+    Window(Core *_core, bool _out_of_order, int _ipc)
+        : out_of_order(_out_of_order), ipc(_ipc), sent_list(depth, false), req_list(depth, Request()), core(_core) {
+        printf("window ipc: %d\n", ipc);
     }
     bool is_full();
     bool is_empty();
@@ -78,6 +79,8 @@ private:
     int tail = 0;
     long last_id = 0;
     bool out_of_order;
+    int ipc = 0;
+
     std::vector<bool> sent_list;
     // std::vector<long> addr_list;
     std::vector<Request> req_list;

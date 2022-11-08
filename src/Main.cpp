@@ -83,8 +83,8 @@ void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.access_energy = 20.655976172;
 
     ramulator::core_configs[core_type_t::SILVER].ipc = 1;
-    ramulator::core_configs[core_type_t::GOLD].ipc = 4;
-    ramulator::core_configs[core_type_t::PRIME].ipc = 4;
+    ramulator::core_configs[core_type_t::GOLD].ipc = 3;
+    ramulator::core_configs[core_type_t::PRIME].ipc = 3;
 
     ramulator::core_configs[core_type_t::SILVER].gpic_core_num = 8;
     ramulator::core_configs[core_type_t::GOLD].gpic_core_num = 16;

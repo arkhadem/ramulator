@@ -230,6 +230,8 @@ protected:
     // needed.
     bool need_eviction(std::vector<std::shared_ptr<Cache::Line>> &lines, long addr);
 
+    bool should_send(Request req);
+
     bool exists_addr(long addr) {
         std::map<int, std::vector<std::shared_ptr<Line>>>::iterator it;
         it = cache_lines.find(get_index(addr));
