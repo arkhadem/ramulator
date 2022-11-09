@@ -259,16 +259,18 @@ void Cache::intrinsic_computer(Request req) {
     bitlines = 1;
     // hint("%s %d %d\n", req.opcode.c_str(), compute_delay, access_delay);
     if ((compute_delay + access_delay) != 0) {
-        hint("%s set for compute in %ld clock cycles\n", req.c_str(), compute_delay + access_delay);
-        gpic_compute_queue[req.sid].push_back(make_pair(compute_delay + access_delay, req));
-        hint("Compute queue [%d] added size: %d\n", req.sid, (int)gpic_compute_queue[req.sid].size());
-        GPIC_compute_total_energy += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
-        GPIC_compute_comp_total_energy += ((float)compute_delay * 15.4) * (float)bitlines;
-        GPIC_compute_rdwr_total_energy += ((float)access_delay * 8.6) * (float)bitlines;
-        GPIC_compute_energy[req.sid] += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
-        GPIC_compute_comp_energy[req.sid] += ((float)compute_delay * 15.4) * (float)bitlines;
-        GPIC_compute_rdwr_energy[req.sid] += ((float)access_delay * 8.6) * (float)bitlines;
+        assert(req.opcode.find("cvt") != string::npos);
     }
+    hint("%s set for compute in %ld clock cycles\n", req.c_str(), compute_delay + access_delay);
+    gpic_compute_queue[req.sid].push_back(make_pair(compute_delay + access_delay, req));
+    hint("Compute queue [%d] added size: %d\n", req.sid, (int)gpic_compute_queue[req.sid].size());
+    GPIC_compute_total_energy += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
+    GPIC_compute_comp_total_energy += ((float)compute_delay * 15.4) * (float)bitlines;
+    GPIC_compute_rdwr_total_energy += ((float)access_delay * 8.6) * (float)bitlines;
+    GPIC_compute_energy[req.sid] += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
+    GPIC_compute_comp_energy[req.sid] += ((float)compute_delay * 15.4) * (float)bitlines;
+    GPIC_compute_rdwr_energy[req.sid] += ((float)access_delay * 8.6) * (float)bitlines;
+    // }
 }
 
 void Cache::instrinsic_decoder(Request req) {
