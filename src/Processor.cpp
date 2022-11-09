@@ -1310,14 +1310,6 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
             req_stride.push_back(stride1);
             req_stride.push_back(stride2);
             req_stride.push_back(stride3);
-
-            if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
-                long req_addr_start;
-                while (line.size() != 0) {
-                    req_addr_start = std::stoul(get_remove_first_word(line), nullptr, 16);
-                    req_addr_starts.push_back(req_addr_start);
-                }
-            }
         } else {
             // register-related arguments
             // config
@@ -1339,6 +1331,15 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
     assert(req_type != Request::Type::FREE);
     bubble_cnt = std::stoul(get_remove_first_word(line));
 #endif
+
+    if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
+        assert(req_type == Request::Type::GPIC);
+        long req_addr_start;
+        while (line.size() != 0) {
+            req_addr_start = std::stoul(get_remove_first_word(line), nullptr, 16);
+            req_addr_starts.push_back(req_addr_start);
+        }
+    }
 
     if (req_type == Request::Type::GPIC) {
         if (req_dim != -1) {
