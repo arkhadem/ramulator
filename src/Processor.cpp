@@ -403,13 +403,13 @@ void Core::tick() {
                 if (!more_reqs) {
                     break;
                 }
-                if (req_opcode.find("_b") != string::npos) {
+                if ((req_opcode.find("_b") != string::npos) || (req_opcode.find("tob") != string::npos)) {
                     data_type = 8;
-                } else if ((req_opcode.find("_w") != string::npos) || (req_opcode.find("_hf") != string::npos)) {
+                } else if ((req_opcode.find("_w") != string::npos) || (req_opcode.find("_hf") != string::npos) || (req_opcode.find("tow") != string::npos) || (req_opcode.find("tohf") != string::npos)) {
                     data_type = 16;
-                } else if ((req_opcode.find("_dw") != string::npos) || (req_opcode.find("_f") != string::npos)) {
+                } else if ((req_opcode.find("_dw") != string::npos) || (req_opcode.find("_f") != string::npos) || (req_opcode.find("todw") != string::npos) || (req_opcode.find("tof") != string::npos)) {
                     data_type = 32;
-                } else if ((req_opcode.find("_qw") != string::npos) || (req_opcode.find("_df") != string::npos)) {
+                } else if ((req_opcode.find("_qw") != string::npos) || (req_opcode.find("_df") != string::npos) || (req_opcode.find("toqw") != string::npos) || (req_opcode.find("todf") != string::npos)) {
                     data_type = 64;
                 } else {
                     // It's a CPU load / store
