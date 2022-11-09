@@ -875,6 +875,9 @@ bool Window::check_send(Request &req, int location) {
 #if (EXETYPE == INORDER)
         return false;
 #endif
+        // config instructions must be sent in order
+        if (req.opcode.find("set_") != string::npos)
+            return false;
         // Find if there is any unsent instruction
         if (find_older_unsent(location, req.dst) == false) {
             if ((req.addr != -1) && (req.opcode.find("store") != string::npos)) {
