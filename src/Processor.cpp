@@ -1324,7 +1324,7 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
             req_dim = std::stoi(get_remove_first_word(line));
             // value
             req_value = std::stoi(get_remove_first_word(line));
-            if (req_opcode.find("_set_") == string::npos) {
+            if (req_opcode.find("set_") == string::npos) {
                 // It's not a config intrinsic, config and value must be -1
                 assert(req_dim == -1);
                 assert(req_value == -1);
