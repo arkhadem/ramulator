@@ -733,13 +733,27 @@ void Cache::evictline(long addr, bool dirty) {
         hint("line for addr 0x%lx evicted from %s\n", addr, level_string.c_str());
     }
 
+#ifdef DEBUG
+    hint("2- %s: Pushing back addr 0x%lx, idx 0x%x, and tag 0x%lx. Before:\n", level_string.c_str(), addr, get_index(addr), get_tag(addr));
+    std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
+    cache_line = cache_lines.find(get_index(addr));
+    if (cache_line == cache_lines.end()) {
+        hint("No line found for the aforementioned idx and tag\n");
+    } else {
+        std::vector<std::shared_ptr<Line>> liinees;
+        liinees = cache_line->second;
+        for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+            hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+        }
+    }
+#endif
+
     // Update LRU queue. The dirty bit will be set if the dirty
     // bit inherited from higher level(s) is set.
     add_line(&lines, addr, false, dirty || line_shared_ptr->dirty);
 
 #ifdef DEBUG
     hint("2- %s: Pushed back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), addr, get_index(addr), get_tag(addr));
-    std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
     cache_line = cache_lines.find(get_index(addr));
     if (cache_line == cache_lines.end()) {
         hint("No line found for the aforementioned idx and tag\n");
