@@ -843,17 +843,19 @@ bool Window::find_any_older_stores(int location, Request::Type type) {
 }
 
 bool Window::find_older_unsent(int location, long dst_reg) {
-    if (dst_reg == -1) {
-        return false;
-    }
 
     int idx = tail;
 
     while (idx != location) {
         Request curr_req = req_list.at(idx);
         if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
-            if ((dst_reg == curr_req.src1) || (dst_reg == curr_req.src2))
+            if (curr_req.opcode.find("set_") != string::npos)
                 return true;
+            if (dst_reg != -1) {
+                if ((dst_reg == curr_req.src1) || (dst_reg == curr_req.src2)) {
+                    return true;
+                }
+            }
         }
         idx = (idx + 1) % depth;
     }
