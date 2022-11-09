@@ -962,7 +962,7 @@ bool Cache::remove_line(std::vector<std::shared_ptr<Cache::Line>> *lines, std::s
     std::vector<std::shared_ptr<Cache::Line>>::iterator it = lines->begin();
     bool removed = false;
     while (it != lines->end()) {
-        if ((*it)->addr == line->addr) {
+        if ((*it)->tag == line->tag) {
             it = lines->erase(it);
             removed = true;
             break;
