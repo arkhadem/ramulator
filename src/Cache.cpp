@@ -431,7 +431,7 @@ void Cache::random_dict_access_decoder(Request req) {
 }
 
 bool Cache::memory_controller(Request req) {
-    if (req.opcode.find("_set_") != string::npos) {
+    if (req.opcode.find("set_") != string::npos) {
         // it's a config GPIC instruction
         if (req.opcode.find("mask") != string::npos) {
             // do nothing
