@@ -258,7 +258,7 @@ void Cache::intrinsic_computer(Request req) {
     access_delay = GPIC_ACCESS_DELAY[req.opcode];
     bitlines = 1;
     // hint("%s %d %d\n", req.opcode.c_str(), compute_delay, access_delay);
-    if ((compute_delay + access_delay) != 0) {
+    if ((compute_delay + access_delay) == 0) {
         assert(req.opcode.find("cvt") != string::npos);
     }
     hint("%s set for compute in %ld clock cycles\n", req.c_str(), compute_delay + access_delay);
