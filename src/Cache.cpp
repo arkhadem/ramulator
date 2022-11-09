@@ -571,11 +571,25 @@ bool Cache::send(Request req) {
 
         hint("%s hitted @level %d\n", req.c_str(), (level));
 
+#ifdef DEBUG
+        hint("1- %s: Pushing back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), req.addr, get_index(req.addr), get_tag(req.addr));
+        std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
+        cache_line = cache_lines.find(get_index(req.addr));
+        if (cache_line == cache_lines.end()) {
+            hint("No line found for the aforementioned idx and tag\n");
+        } else {
+            std::vector<std::shared_ptr<Line>> liinees;
+            liinees = cache_line->second;
+            for (std::shared_ptr<Cache::Line> &liinee : liinees) {
+                hint("Line addr: 0x%lx tag: 0x%lx\n", liinee->addr, liinee->tag);
+            }
+        }
+#endif
+
         std::shared_ptr<Cache::Line> line = add_line(&lines, req.addr, false, dirty);
 
 #ifdef DEBUG
         hint("1- %s: Pushed back addr 0x%lx, idx 0x%x, and tag 0x%lx\n", level_string.c_str(), req.addr, get_index(req.addr), get_tag(req.addr));
-        std::map<int, std::vector<std::shared_ptr<Line>>>::iterator cache_line;
         cache_line = cache_lines.find(get_index(req.addr));
         if (cache_line == cache_lines.end()) {
             hint("No line found for the aforementioned idx and tag\n");
