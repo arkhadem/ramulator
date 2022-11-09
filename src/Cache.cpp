@@ -954,12 +954,15 @@ std::shared_ptr<Cache::Line> Cache::allocate_line(std::vector<std::shared_ptr<Ca
             if (!is_first_level) {
                 for (auto hc : higher_cache) {
                     if (check == false) {
-                        continue;
+                        break;
                     }
                     check = check && hc->check_unlock(line->addr);
                 }
             }
-            victim = line;
+            if (check == true) {
+                victim = line;
+                break;
+            }
         }
         if (victim == nullptr) {
             return victim; // doesn't exist a line that's already unlocked in each level
