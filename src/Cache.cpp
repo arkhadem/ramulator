@@ -358,7 +358,7 @@ void Cache::instrinsic_decoder(Request req) {
                 req.sid = vid_to_sid(vid_base, sid_offset);
 
                 // For each vector of the SA
-                bool SA_mased = true;
+                bool SA_masked = true;
                 int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
                 for (int vid_offset = 0; vid_offset < remaining_vectors; vid_offset++) {
                     // VID shows which address pair should be used
@@ -369,12 +369,13 @@ void Cache::instrinsic_decoder(Request req) {
                         continue;
                     }
 
-                    SA_mased = false;
+                    SA_masked = false;
                     break;
                 }
 
-                if (SA_mased) {
+                if (SA_masked) {
                     // All vectors of this SRAM array are masked
+                    hint("Request %s masked!\n", req.c_str());
                     gpic_vop_to_num_sop[req]--;
                     continue;
                 }
