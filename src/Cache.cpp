@@ -45,6 +45,7 @@ Cache::Cache(int size, int assoc, int block_size,
         last_gpic_instruction_compute_clk[i] = -1;
         last_gpic_instruction_computed[i] = false;
         last_gpic_instruction_sent[i] = false;
+        SA_masked[i] = false;
     }
 
     SA_PER_V = gpic_core_num;
@@ -299,6 +300,13 @@ void Cache::instrinsic_decoder(Request req) {
                 req.addr_starts.clear();
                 req.addr_ends.clear();
                 req.sid = vid_to_sid(vid_base, sid_offset);
+
+                if (SA_masked[req.sid]) {
+                    // All vectors of this SRAM array are masked
+                    gpic_vop_to_num_sop[req]--;
+                    continue;
+                }
+
                 req.stride = stride;
                 req.min_vid = sid_offset * 256;
                 req.max_vid = (req.min_vid + 256) < VL_reg[0] ? (req.min_vid + 256) : VL_reg[0];
@@ -308,11 +316,6 @@ void Cache::instrinsic_decoder(Request req) {
                 for (int vid_offset = 0; vid_offset < remaining_vectors; vid_offset++) {
                     // VID shows which address pair should be used
                     int vid = vid_base + vid_offset;
-
-                    if (vector_masked(vid)) {
-                        // This vector is masked
-                        continue;
-                    }
 
                     // It's an ordinary load or store
                     long addr = addr_starts[vid] + (long)(std::ceil((float)(sid_offset * 256 * req.data_type * stride / 8)));
@@ -329,12 +332,6 @@ void Cache::instrinsic_decoder(Request req) {
                         req.addr = req.addr_starts[0];
                         req.addr_end = req.addr_ends[req.addr_ends.size() - 1];
                     }
-                }
-
-                if (req.addr_starts.size() == 0) {
-                    // All vectors of this SRAM array are masked
-                    gpic_vop_to_num_sop[req]--;
-                    continue;
                 }
 
                 // Schedule the instruction
@@ -358,23 +355,7 @@ void Cache::instrinsic_decoder(Request req) {
             for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
                 req.sid = vid_to_sid(vid_base, sid_offset);
 
-                // For each vector of the SA
-                bool SA_masked = true;
-                int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
-                for (int vid_offset = 0; vid_offset < remaining_vectors; vid_offset++) {
-                    // VID shows which address pair should be used
-                    int vid = vid_base + vid_offset;
-
-                    if (vector_masked(vid)) {
-                        // This vector is masked
-                        continue;
-                    }
-
-                    SA_masked = false;
-                    break;
-                }
-
-                if (SA_masked) {
+                if (SA_masked[req.sid]) {
                     // All vectors of this SRAM array are masked
                     hint("Request %s masked!\n", req.c_str());
                     gpic_vop_to_num_sop[req]--;
@@ -500,6 +481,31 @@ bool Cache::memory_controller(Request req) {
             assert(false);
         }
         hint("DC_reg: %ld, LS_reg: [%ld, %ld, %ld, %ld], SS_reg: [%ld, %ld, %ld, %ld], VL_reg: [%ld, %ld, %ld, %ld], VC_reg: %ld, V_PER_SA: %d, SA_PER_V: %d\n", DC_reg, LS_reg[0], LS_reg[1], LS_reg[2], LS_reg[3], SS_reg[0], SS_reg[1], SS_reg[2], SS_reg[3], VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], VC_reg, V_PER_SA, SA_PER_V);
+        // For each vector
+        for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_SA) {
+            // For each SA of the vector
+            for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+                int sid = vid_to_sid(vid_base, sid_offset);
+
+                // For each vector of the SA
+                bool SA_masked_temp = true;
+                int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
+                for (int vid_offset = 0; vid_offset < remaining_vectors; vid_offset++) {
+                    // VID shows which address pair should be used
+                    int vid = vid_base + vid_offset;
+
+                    if (vector_masked(vid)) {
+                        // This vector is masked
+                        continue;
+                    }
+
+                    SA_masked_temp = false;
+                    break;
+                }
+
+                SA_masked[sid] = SA_masked_temp;
+            }
+        }
     } else {
 
         if (((((VC_reg * SA_PER_V) + 1) / V_PER_SA) - 1) > gpic_core_num) {
@@ -1534,6 +1540,7 @@ void Cache::reset_state() {
         last_gpic_instruction_computed[sid] = false;
         last_gpic_instruction_sent[sid] = false;
         assert(gpic_op_to_mem_ops[sid].size() == 0);
+        SA_masked[sid] = false;
 
         for (int i = 0; i < gpic_compute_queue[sid].size(); i++) {
             printf("ERROR: %s remained in gpic compute queue %s\n", gpic_compute_queue[sid].at(0).second.c_str(), level_string.c_str());

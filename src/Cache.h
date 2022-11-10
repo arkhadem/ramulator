@@ -182,6 +182,7 @@ protected:
     vector<bool> VM_reg[4];
     long LS_reg[4] = {0, 0, 0, 0};
     long SS_reg[4] = {0, 0, 0, 0};
+    bool SA_masked[MAX_GPIC_SA_NUM];
 
     int V_PER_SA = 1;
     int SA_PER_V = MAX_GPIC_SA_NUM;
