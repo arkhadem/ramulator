@@ -483,16 +483,16 @@ bool Cache::memory_controller(Request req) {
                 for (int element = 0; element < VL_reg[req.dim]; element++) {
                     VM_reg[req.dim][element] = val;
                 }
-                hint("All VM_reg[%d] set to %d\n", req.dim, val);
+                hint("All VM_reg[%ld] set to %d\n", req.dim, val);
             } else if (req.opcode.find("only") != string::npos) {
                 for (int element = 0; element < VL_reg[req.dim]; element++) {
                     VM_reg[req.dim][element] = !val;
                 }
                 VM_reg[req.dim][req.value] = val;
-                hint("All VM_reg[%d] set to %d, VM_reg[%d][%d] set to %d\n", req.dim, !val, req.dim, req.value, val);
+                hint("All VM_reg[%ld] set to %d, VM_reg[%ld][%ld] set to %d\n", req.dim, !val, req.dim, req.value, val);
             } else if (req.opcode.find("active") != string::npos) {
                 VM_reg[req.dim][req.value] = val;
-                hint("VM_reg[%d][%d] set to %d\n", req.dim, req.value, val);
+                hint("VM_reg[%ld][%ld] set to %d\n", req.dim, req.value, val);
             } else {
                 assert(false);
             }

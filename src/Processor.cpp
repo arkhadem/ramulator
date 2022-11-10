@@ -614,7 +614,7 @@ void Core::tick() {
             // write request
             assert(req_type == Request::Type::WRITE);
             Request req(req_addr, req_type, true, callback, id, Request::UnitID::CORE);
-            hint("5- CORE sending %s to cache\n", req.c_str());
+            hint("1- CORE sending %s to cache\n", req.c_str());
             if (!ls_send(req))
                 return;
             cpu_inst++;
@@ -899,7 +899,17 @@ bool Window::check_send(Request &req, int location) {
 #endif
         // Find if there is any unsent instruction
         if (req.opcode.find("set_") != string::npos) {
-            return find_any_older_unsent(location, req.dst);
+            if (find_any_older_unsent(location, req.dst) == false) {
+                hint("2- CORE sending %s to cache\n", req.c_str());
+                if (!core->gpic_send(req)) {
+                    retry_list.push_back(req);
+                } else {
+                    op_trace << core->clk << " core controller " << req.opcode << " " << req.dst << endl;
+                }
+                return true;
+            } else {
+                return false;
+            }
         }
         if (find_older_unsent(location, req.dst) == false) {
             // config instructions must be sent in order
@@ -924,7 +934,7 @@ bool Window::check_send(Request &req, int location) {
                     return false;
                 } else {
                     // Send it
-                    hint("6- CORE sending %s to cache\n", req.c_str());
+                    hint("3- CORE sending %s to cache\n", req.c_str());
                     if (!core->gpic_send(req)) {
                         retry_list.push_back(req);
                     } else {
@@ -935,7 +945,7 @@ bool Window::check_send(Request &req, int location) {
             } else {
                 // GPIC COMPUTATIONAL
                 // Send it
-                hint("7- CORE sending %s to cache\n", req.c_str());
+                hint("4- CORE sending %s to cache\n", req.c_str());
                 if (!core->gpic_send(req)) {
                     retry_list.push_back(req);
                 } else {
@@ -974,7 +984,7 @@ bool Window::check_send(Request &req, int location) {
             }
         } else {
             // Send it
-            hint("8- CORE sending %s to cache\n", req.c_str());
+            hint("5- CORE sending %s to cache\n", req.c_str());
             if (!core->ls_send(req)) {
                 retry_list.push_back(req);
             }
@@ -1018,7 +1028,7 @@ long Window::tick() {
     assert(load <= depth);
 
     while (retry_list.size()) {
-        hint("1- CORE sending %s to cache\n", retry_list.at(0).c_str());
+        hint("6- CORE sending %s to cache\n", retry_list.at(0).c_str());
         if (retry_list.at(0).type == Request::Type::GPIC) {
             if (core->gpic_send(retry_list.at(0))) {
                 op_trace << core->clk << " core controller " << retry_list.at(0).opcode << " ";
@@ -1055,7 +1065,7 @@ long Window::tick() {
         if (sent_list.at(tail) == false) {
             // Send it
             Request req = req_list.at(tail);
-            hint("2- CORE sending %s to cache\n", req.c_str());
+            hint("7- CORE sending %s to cache\n", req.c_str());
             if (req.type == Request::Type::GPIC) {
                 if (!core->gpic_send(req)) {
                     retry_list.push_back(req);
