@@ -237,7 +237,6 @@ int Cache::stride_evaluator(long rstride, bool load) {
 
 bool Cache::vector_masked(int vid) {
     int temp_vid = vid;
-    temp_vid /= VL_reg[0];
     for (int dim = 1; dim < 4; dim++) {
         if (VM_reg[dim][temp_vid % (int)VL_reg[dim]] == false) {
             hint("VID %d is masked b/c VM_reg[%d][%d] = false\n", vid, dim, temp_vid % (int)VL_reg[dim]);
@@ -245,6 +244,7 @@ bool Cache::vector_masked(int vid) {
         }
         temp_vid /= VL_reg[dim];
     }
+    hint("VID %d is not masked\n", vid);
     return false;
 }
 
