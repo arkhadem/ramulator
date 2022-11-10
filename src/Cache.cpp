@@ -5,6 +5,8 @@
 #include <cassert>
 #include <cstdio>
 #include <memory>
+#include <stdlib.h>
+#include <time.h>
 #include <utility>
 #include <vector>
 
@@ -1114,7 +1116,9 @@ void Cache::callback(Request &req) {
     }
 
     // Remove corresponding GPIC instructions
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    int sid_start = rand() % gpic_core_num;
+    for (int sid_offset = 0; sid_offset < gpic_core_num; sid_offset++) {
+        int sid = (sid_start + sid_offset) % gpic_core_num;
 
         bool hit = false;
 
@@ -1270,7 +1274,9 @@ void Cache::tick() {
     // Instruction at the head of the GPIC queue is computed
     // If it's a store or load it is unpacked
     // Otherwise, it is called back
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    int sid_start = rand() % gpic_core_num;
+    for (int sid_offset = 0; sid_offset < gpic_core_num; sid_offset++) {
+        int sid = (sid_start + sid_offset) % gpic_core_num;
 
         // Check if there is any instruction ready for completion
         if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == false)) {
@@ -1374,7 +1380,9 @@ void Cache::tick() {
     }
 
     // Instruction at the head of the GPIC queue gets ready for compute
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    sid_start = rand() % gpic_core_num;
+    for (int sid_offset = 0; sid_offset < gpic_core_num; sid_offset++) {
+        int sid = (sid_start + sid_offset) % gpic_core_num;
         // Check if there is any instructions ready to be computed
         if (last_gpic_instruction_computed[sid] == false) {
 
@@ -1437,7 +1445,9 @@ void Cache::tick() {
         }
     }
 
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    sid_start = rand() % gpic_core_num;
+    for (int sid_offset = 0; sid_offset < gpic_core_num; sid_offset++) {
+        int sid = (sid_start + sid_offset) % gpic_core_num;
         if ((last_gpic_instruction_computed[sid] == false) && (last_gpic_instruction_sent[sid] == false)) {
 
             if (gpic_compute_queue[sid].size() == 0) {
