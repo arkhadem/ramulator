@@ -850,6 +850,20 @@ bool Window::find_any_older_stores(int location, Request::Type type) {
     return false;
 }
 
+bool Window::find_any_older_unsent(int location, long dst_reg) {
+
+    int idx = tail;
+
+    while (idx != location) {
+        Request curr_req = req_list.at(idx);
+        if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
+            return true;
+        }
+        idx = (idx + 1) % depth;
+    }
+    return false;
+}
+
 bool Window::find_older_unsent(int location, long dst_reg) {
 
     int idx = tail;
@@ -883,11 +897,12 @@ bool Window::check_send(Request &req, int location) {
 #if (EXETYPE == INORDER)
         return false;
 #endif
-        // config instructions must be sent in order
-        if (req.opcode.find("set_") != string::npos)
-            return false;
         // Find if there is any unsent instruction
+        if (req.opcode.find("set_") != string::npos) {
+            return find_any_older_unsent(location, req.dst);
+        }
         if (find_older_unsent(location, req.dst) == false) {
+            // config instructions must be sent in order
             if ((req.addr != -1) && (req.opcode.find("store") != string::npos)) {
                 // GPIC STORE: Do Nothing
                 hint("failed to send @%d %s because store must be at the head of ROB\n", get_location(location), req.c_str());

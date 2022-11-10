@@ -237,7 +237,8 @@ int Cache::stride_evaluator(long rstride, bool load) {
 
 bool Cache::vector_masked(int vid) {
     int temp_vid = vid;
-    for (int dim = 0; dim < 4; dim++) {
+    temp_vid /= VL_reg[0];
+    for (int dim = 1; dim < 4; dim++) {
         if (VM_reg[dim][temp_vid % (int)VL_reg[dim]] == false) {
             hint("VID %d is masked b/c VM_reg[%d][%d] = false\n", vid, dim, temp_vid % (int)VL_reg[dim]);
             return true;
@@ -482,13 +483,16 @@ bool Cache::memory_controller(Request req) {
                 for (int element = 0; element < VL_reg[req.dim]; element++) {
                     VM_reg[req.dim][element] = val;
                 }
+                hint("All VM_reg[%d] set to %d\n", req.dim, val);
             } else if (req.opcode.find("only") != string::npos) {
                 for (int element = 0; element < VL_reg[req.dim]; element++) {
                     VM_reg[req.dim][element] = !val;
                 }
                 VM_reg[req.dim][req.value] = val;
+                hint("All VM_reg[%d] set to %d, VM_reg[%d][%d] set to %d\n", req.dim, !val, req.dim, req.value, val);
             } else if (req.opcode.find("active") != string::npos) {
                 VM_reg[req.dim][req.value] = val;
+                hint("VM_reg[%d][%d] set to %d\n", req.dim, req.value, val);
             } else {
                 assert(false);
             }
