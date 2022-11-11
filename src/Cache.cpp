@@ -445,7 +445,7 @@ bool Cache::memory_controller(Request req) {
                 VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
                 delete[] VM_reg[req.dim];
                 VM_reg[req.dim] = new bool[req.value];
-                for (int element = 0; req.value; element++) {
+                for (int element = 0; element < req.value; element++) {
                     VM_reg[req.dim][element] = true;
                 }
                 if (req.dim == 0) {
