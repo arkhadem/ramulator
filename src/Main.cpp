@@ -335,6 +335,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     long i = 0;
     bool finished = false;
     bool should;
+    int id = 0;
     while (finished == false) {
         printf("While1, %d clk!\n", clks);
 
@@ -358,6 +359,8 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                 if (!end) {
                     req.addr = addr;
                     req.type = type;
+                    req.reqid = id;
+                    id++;
                     should = dc_l2->should_send(req);
                     if (should == true)
                         stall = !dc_l2->send(req);
