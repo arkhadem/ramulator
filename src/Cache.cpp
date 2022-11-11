@@ -59,7 +59,7 @@ Cache::Cache(int size, int assoc, int block_size,
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
     VM_reg[0] = new bool[gpic_core_num * 256];
-    for (int element = 0; gpic_core_num * 256; element++) {
+    for (int element = 0; element < gpic_core_num * 256; element++) {
         VM_reg[0][element] = true;
     }
     VM_reg[1] = new bool[1];
@@ -1582,7 +1582,7 @@ void Cache::reset_state() {
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
     VM_reg[0] = new bool[gpic_core_num * 256];
-    for (int element = 0; gpic_core_num * 256; element++) {
+    for (int element = 0; element < gpic_core_num * 256; element++) {
         VM_reg[0][element] = true;
     }
     VM_reg[1] = new bool[1];
