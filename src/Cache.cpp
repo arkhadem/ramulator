@@ -1485,10 +1485,13 @@ void Cache::tick() {
 }
 
 bool Cache::finished() {
+
     if (mshr_entries.size() != 0)
         return false;
+
     if (retry_list.size() != 0)
         return false;
+
     if (self_retry_list.size() != 0)
         return false;
 

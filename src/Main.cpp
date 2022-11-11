@@ -285,6 +285,96 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
     proc.reset_state();
 }
 
+ramulator::Cache *dc_llc;
+ramulator::Cache *dc_l2;
+std::shared_ptr<CacheSystem> dc_cachesys;
+
+void dc_receive(Request &req) {
+    hint("DC received %s\n", req.c_str());
+    dc_llc->callback(req);
+}
+
+template <typename T>
+void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
+    Trace trace(files);
+
+    int cpu_tick = configs.get_cpu_tick();
+    int mem_tick = configs.get_mem_tick();
+
+    auto send_memory = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
+    declare_configuration(configs);
+
+    dc_cachesys = std::shared_ptr<CacheSystem>(new CacheSystem(configs, send_memory));
+    dc_llc = new ramulator::Cache(ramulator::l3_size, ramulator::l3_assoc, ramulator::l3_blocksz, ramulator::mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, dc_cachesys, l3_gpic_core_num);
+
+    dc_l2 = new ramulator::Cache(
+        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.size,
+        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.assoc,
+        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.blocksz,
+        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.mshr_num,
+        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.access_energy,
+        Cache::Level::L2,
+        dc_cachesys,
+        core_configs[ramulator::core_type_t::PRIME].gpic_core_num,
+        0);
+    dc_l2->concatlower(dc_llc);
+
+    /* run simulation */
+    bool stall = false, end = false;
+    int reads = 0, writes = 0, clks = 0;
+    long addr = 0;
+    Request::Type type = Request::Type::READ;
+    map<int, int> latencies;
+    auto read_complete = [&latencies](Request &r) { latencies[r.depart - r.arrive]++; };
+
+    Request req(addr, type, read_complete);
+    req.coreid = 0;
+    req.callback = dc_receive;
+
+    int tick_mult = cpu_tick * mem_tick;
+    long i = 0;
+    bool finished = false;
+    while (finished == false) {
+        if (!end && !stall) {
+            end = !trace.get_dramtrace_request(addr, type);
+        }
+        if (end) {
+            finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
+            // printf("cachesys %d, l2 %d, llc %d, memory %d\n", dc_cachesys->finished(), dc_l2->finished(), dc_llc->finished(), (!memory.pending_requests()));
+        }
+
+        if (!end) {
+            req.addr = addr;
+            req.type = type;
+            stall = !dc_l2->send(req);
+            if (!stall) {
+                if (type == Request::Type::READ)
+                    reads++;
+                else if (type == Request::Type::WRITE)
+                    writes++;
+            }
+        } else {
+            memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
+                                                    // write queue are drained
+        }
+
+        if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
+            dc_l2->tick();
+            dc_cachesys->tick();
+        }
+        if (((i % tick_mult) % cpu_tick) == 0) {
+            memory.tick();
+        }
+        clks++;
+        Stats::curTick++;
+        i++;
+    }
+    // This a workaround for statistics set only initially lost in the end
+    memory.finish();
+    Stats::statlist.printall();
+    printf("finished in %d clks\n", clks / cpu_tick);
+}
+
 template <typename T>
 void start_run(const Config &configs, T *spec, const vector<const char *> &files) {
     // initiate controller and memory
@@ -311,6 +401,8 @@ void start_run(const Config &configs, T *spec, const vector<const char *> &files
         run_dramtrace(configs, memory, files);
     } else if (configs["trace_type"] == "GPIC") {
         run_gpictrace(configs, memory, files);
+    } else if (configs["trace_type"] == "DC") {
+        run_dctrace(configs, memory, files);
     }
 }
 
@@ -336,6 +428,8 @@ int main(int argc, const char *argv[]) {
     } else if (strcmp(trace_type, "gpic") == 0) {
         configs.add("trace_type", "GPIC");
         assert((configs.has_core_caches() && configs.has_l3_cache()) || "GPIC mode need \"all\" cache levels");
+    } else if (strcmp(trace_type, "dc") == 0) {
+        configs.add("trace_type", "DC");
     } else {
         printf("invalid trace type: %s\n", trace_type);
         assert(false);
