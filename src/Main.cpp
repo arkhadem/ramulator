@@ -337,7 +337,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     bool should;
     int id = 0;
     while (finished == false) {
-        printf("While1, %d clk!\n", clks);
+        hint("While1, %d clk!\n", clks);
 
         if (end == false) {
             if (stall == true) {
@@ -353,8 +353,8 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                         writes++;
                 }
             }
-            while (stall == false) {
-                printf("While2, %d clk!\n", clks);
+            while ((stall == false) && (end == false)) {
+                hint("While2, %d clk!\n", clks);
                 end = !trace.get_dramtrace_request(addr, type);
                 if (!end) {
                     req.addr = addr;
