@@ -334,12 +334,17 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     int tick_mult = cpu_tick * mem_tick;
     long i = 0;
     bool finished = false;
+    bool should;
     while (finished == false) {
 
         if (end == false) {
             if (stall == true) {
-                stall = !dc_l2->send(req);
-                if (!stall) {
+                should = dc_l2->should_send(req);
+                if (should == true)
+                    stall = !dc_l2->send(req);
+                else
+                    stall = true;
+                if (stall == false) {
                     if (type == Request::Type::READ)
                         reads++;
                     else if (type == Request::Type::WRITE)
@@ -351,9 +356,11 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                 if (!end) {
                     req.addr = addr;
                     req.type = type;
-                    stall = !dc_l2->should_send(req);
-                    if (stall == false)
+                    should = dc_l2->should_send(req);
+                    if (should == true)
                         stall = !dc_l2->send(req);
+                    else
+                        stall = true;
                     if (stall == false) {
                         if (type == Request::Type::READ)
                             reads++;
@@ -375,6 +382,9 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
             dc_l2->tick();
             dc_cachesys->tick();
+            if (dc_cachesys->clk % 1000000 == 0) {
+                printf("DC heartbeat, cycles: %ld \n", dc_cachesys->clk);
+            }
         }
         if (((i % tick_mult) % cpu_tick) == 0) {
             memory.tick();
