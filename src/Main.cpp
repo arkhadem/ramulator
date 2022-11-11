@@ -372,9 +372,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                                                             // write queue are drained
                 }
             }
-        }
-
-        if (end) {
+        } else {
             finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
             // printf("cachesys %d, l2 %d, llc %d, memory %d\n", dc_cachesys->finished(), dc_l2->finished(), dc_llc->finished(), (!memory.pending_requests()));
         }
