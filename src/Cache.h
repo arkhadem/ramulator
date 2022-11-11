@@ -137,6 +137,8 @@ public:
 
     bool remove_line(std::vector<std::shared_ptr<Line>> *lines, std::shared_ptr<Line> line);
 
+    bool should_send(Request req);
+
 protected:
     int core_id;
     bool is_first_level;
@@ -230,8 +232,6 @@ protected:
     // Check whether the set to hold addr has space or eviction is
     // needed.
     bool need_eviction(std::vector<std::shared_ptr<Cache::Line>> &lines, long addr);
-
-    bool should_send(Request req);
 
     bool exists_addr(long addr) {
         std::map<int, std::vector<std::shared_ptr<Line>>>::iterator it;

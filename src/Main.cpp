@@ -335,27 +335,41 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     long i = 0;
     bool finished = false;
     while (finished == false) {
-        if (!end && !stall) {
-            end = !trace.get_dramtrace_request(addr, type);
+
+        if (end == false) {
+            if (stall == true) {
+                stall = !dc_l2->send(req);
+                if (!stall) {
+                    if (type == Request::Type::READ)
+                        reads++;
+                    else if (type == Request::Type::WRITE)
+                        writes++;
+                }
+            }
+            while (stall == false) {
+                end = !trace.get_dramtrace_request(addr, type);
+                if (!end) {
+                    req.addr = addr;
+                    req.type = type;
+                    stall = !dc_l2->should_send(req);
+                    if (stall == false)
+                        stall = !dc_l2->send(req);
+                    if (stall == false) {
+                        if (type == Request::Type::READ)
+                            reads++;
+                        else if (type == Request::Type::WRITE)
+                            writes++;
+                    }
+                } else {
+                    memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
+                                                            // write queue are drained
+                }
+            }
         }
+
         if (end) {
             finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
             // printf("cachesys %d, l2 %d, llc %d, memory %d\n", dc_cachesys->finished(), dc_l2->finished(), dc_llc->finished(), (!memory.pending_requests()));
-        }
-
-        if (!end) {
-            req.addr = addr;
-            req.type = type;
-            stall = !dc_l2->send(req);
-            if (!stall) {
-                if (type == Request::Type::READ)
-                    reads++;
-                else if (type == Request::Type::WRITE)
-                    writes++;
-            }
-        } else {
-            memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
-                                                    // write queue are drained
         }
 
         if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
