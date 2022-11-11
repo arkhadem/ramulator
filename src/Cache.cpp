@@ -4,6 +4,7 @@
 #include "Request.h"
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <stdlib.h>
 #include <time.h>
@@ -57,13 +58,15 @@ Cache::Cache(int size, int assoc, int block_size,
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = vector<bool>(gpic_core_num * 256);
-    fill(VM_reg[0].begin(), VM_reg[0].end(), true);
-    VM_reg[1] = vector<bool>(1);
+    VM_reg[0] = new bool[gpic_core_num * 256];
+    for (int element = 0; gpic_core_num * 256; element++) {
+        VM_reg[0][element] = true;
+    }
+    VM_reg[1] = new bool[1];
     VM_reg[1][0] = true;
-    VM_reg[2] = vector<bool>(1);
+    VM_reg[2] = new bool[1];
     VM_reg[2][0] = true;
-    VM_reg[3] = vector<bool>(1);
+    VM_reg[3] = new bool[1];
     VM_reg[3][0] = true;
 
     hint("index_offset %d\n", index_offset);
@@ -283,7 +286,8 @@ void Cache::instrinsic_decoder(Request req) {
 
     hint("Decoding %s\n", req.c_str());
 
-    req.vector_mask = VM_reg[0];
+    req.vector_mask = new bool[VL_reg[0]];
+    memcpy(req.vector_mask, VM_reg[0], VL_reg[0] * sizeof(bool));
 
     if ((req.opcode.find("load") != string::npos) || (req.opcode.find("store") != string::npos)) {
 
@@ -439,9 +443,11 @@ bool Cache::memory_controller(Request req) {
                     exit(-1);
                 }
                 VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
-                VM_reg[req.dim].clear();
-                VM_reg[req.dim] = std::vector<bool>(req.value);
-                fill(VM_reg[req.dim].begin(), VM_reg[req.dim].end(), true);
+                delete[] VM_reg[req.dim];
+                VM_reg[req.dim] = new bool[req.value];
+                for (int element = 0; req.value; element++) {
+                    VM_reg[req.dim][element] = true;
+                }
                 if (req.dim == 0) {
                     if (req.value <= 256) {
                         V_PER_SA = (255 / req.value) + 1;
@@ -1307,10 +1313,6 @@ void Cache::tick() {
                                 printf("Error: (addr(0x%lx) < req.addr_starts[%d](0x%lx)) || (addr(0x%lx) > req.addr_ends[%d](0x%lx))", addr, i, req.addr_starts[idx], addr, i, req.addr_ends[idx]);
                                 exit(-1);
                             }
-                            if (req.vector_mask.size() <= i) {
-                                printf("mask size (%ld) <= i (%d), for req: %s\n", req.vector_mask.size(), i, req.c_str());
-                                exit(-2);
-                            }
                             if (req.vector_mask[i]) {
                                 if (addr_exists(gpic_op_to_mem_ops[sid][req], align(addr))) {
                                     hint("14- %s NOT sending 0x%lx to %s\n", level_string.c_str(), align(addr), level_string.c_str());
@@ -1579,13 +1581,15 @@ void Cache::reset_state() {
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = vector<bool>(gpic_core_num * 256);
-    fill(VM_reg[0].begin(), VM_reg[0].end(), true);
-    VM_reg[1] = vector<bool>(1);
+    VM_reg[0] = new bool[gpic_core_num * 256];
+    for (int element = 0; gpic_core_num * 256; element++) {
+        VM_reg[0][element] = true;
+    }
+    VM_reg[1] = new bool[1];
     VM_reg[1][0] = true;
-    VM_reg[2] = vector<bool>(1);
+    VM_reg[2] = new bool[1];
     VM_reg[2][0] = true;
-    VM_reg[3] = vector<bool>(1);
+    VM_reg[3] = new bool[1];
     VM_reg[3][0] = true;
 }
 

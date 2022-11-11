@@ -83,7 +83,7 @@ public:
     int min_vid = -1;
     int max_vid = -1;
 
-    vector<bool> vector_mask;
+    bool *vector_mask;
 
     // For GPIC loads and stores
     Request(std::string &opcode, long dst, long src1, long src2, long addr, long addr_end, std::vector<long> addr_starts, std::vector<long> addr_ends, long data_type, long stride, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)

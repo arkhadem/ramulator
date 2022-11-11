@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 #define MAX_CORE_ID 16
-#define MAX_GPIC_SA_NUM 32
+#define MAX_GPIC_SA_NUM 64
 
 // #define DEBUG
 
