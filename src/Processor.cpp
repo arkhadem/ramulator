@@ -241,7 +241,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
 
         if (configs.is_gpic()) {
             DC_reg = 1;
-            VL_reg[0] = gpic_core_num * 256;
+            VL_reg[0] = gpic_core_num * LANES_PER_SA;
             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
@@ -451,7 +451,7 @@ void Core::tick() {
                         if (req_opcode.find("length") != string::npos) {
                             assert(req_dim < DC_reg);
                             VL_reg[req_dim] = req_value;
-                            assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (256 * gpic_core_num));
+                            assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * gpic_core_num));
                         } else if (req_opcode.find("count") != string::npos) {
                             DC_reg = req_value;
                         } else {
@@ -468,7 +468,7 @@ void Core::tick() {
                     assert(data_type == 8);
 
                     long req_addr_start = req_addr;
-                    long req_addr_end = req_addr + 255;
+                    long req_addr_end = req_addr + (LANES_PER_SA - 1);
 
                     req_addr_starts.clear();
                     req_addr_ends.clear();
@@ -693,7 +693,7 @@ void Core::reset_state() {
     req_addr_starts.clear();
     req_addr_ends.clear();
 
-    VL_reg[0] = gpic_core_num * 256;
+    VL_reg[0] = gpic_core_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;

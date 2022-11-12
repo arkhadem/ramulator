@@ -53,13 +53,13 @@ Cache::Cache(int size, int assoc, int block_size,
 
     SA_PER_V = gpic_core_num;
     DC_reg = 1;
-    VL_reg[0] = gpic_core_num * 256;
+    VL_reg[0] = gpic_core_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = new bool[gpic_core_num * 256];
-    for (int element = 0; element < gpic_core_num * 256; element++) {
+    VM_reg[0] = new bool[gpic_core_num * LANES_PER_SA];
+    for (int element = 0; element < gpic_core_num * LANES_PER_SA; element++) {
         VM_reg[0][element] = true;
     }
     VM_reg[1] = new bool[1];
@@ -201,7 +201,7 @@ void Cache::init_intrinsic_latency() {
 }
 
 int Cache::vid_to_sid(int vid, int base = 0) {
-    if (VL_reg[0] <= 256) {
+    if (VL_reg[0] <= LANES_PER_SA) {
         return vid / V_PER_SA + base;
     } else {
         return vid * SA_PER_V + base;
@@ -314,8 +314,8 @@ void Cache::instrinsic_decoder(Request req) {
                 }
 
                 req.stride = stride;
-                req.min_vid = sid_offset * 256;
-                req.max_vid = (req.min_vid + 256) < VL_reg[0] ? (req.min_vid + 256) : VL_reg[0];
+                req.min_vid = sid_offset * LANES_PER_SA;
+                req.max_vid = (req.min_vid + LANES_PER_SA) < VL_reg[0] ? (req.min_vid + LANES_PER_SA) : VL_reg[0];
 
                 // For each vector of the SA
                 int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
@@ -324,12 +324,12 @@ void Cache::instrinsic_decoder(Request req) {
                     int vid = vid_base + vid_offset;
 
                     // It's an ordinary load or store
-                    long addr = addr_starts[vid] + (long)(std::ceil((float)(sid_offset * 256 * req.data_type * stride / 8)));
+                    long addr = addr_starts[vid] + (long)(std::ceil((float)(sid_offset * LANES_PER_SA * req.data_type * stride / 8)));
                     long addr_end;
                     if (stride == 0)
                         addr_end = min(((long)(std::ceil((float)(req.data_type / 8))) + addr - 1), addr_ends[vid]);
                     else
-                        addr_end = min(((long)(std::ceil((float)(256 * req.data_type * stride / 8))) + addr - 1), addr_ends[vid]);
+                        addr_end = min(((long)(std::ceil((float)(LANES_PER_SA * req.data_type * stride / 8))) + addr - 1), addr_ends[vid]);
 
                     req.addr_starts.push_back(addr);
                     req.addr_ends.push_back(addr_end);
@@ -438,8 +438,8 @@ bool Cache::memory_controller(Request req) {
             if (req.opcode.find("length") != string::npos) {
                 assert(req.dim < DC_reg);
                 VL_reg[req.dim] = req.value;
-                if (VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3] > (256 * gpic_core_num)) {
-                    printf("Error: VL_reg[0](%ld) * VL_reg[1](%ld) * VL_reg[2](%ld) * VL_reg[3](%ld) > (256 * gpic_core_num(%d))", VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], gpic_core_num);
+                if (VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3] > (LANES_PER_SA * gpic_core_num)) {
+                    printf("Error: VL_reg[0](%ld) * VL_reg[1](%ld) * VL_reg[2](%ld) * VL_reg[3](%ld) > (LANES_PER_SA * gpic_core_num(%d))", VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], gpic_core_num);
                     exit(-1);
                 }
                 VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
@@ -449,11 +449,11 @@ bool Cache::memory_controller(Request req) {
                     VM_reg[req.dim][element] = true;
                 }
                 if (req.dim == 0) {
-                    if (req.value <= 256) {
-                        V_PER_SA = (255 / req.value) + 1;
+                    if (req.value <= LANES_PER_SA) {
+                        V_PER_SA = ((LANES_PER_SA - 1) / req.value) + 1;
                         SA_PER_V = 1;
                     } else {
-                        SA_PER_V = ((req.value - 1) / 256) + 1;
+                        SA_PER_V = ((req.value - 1) / LANES_PER_SA) + 1;
                         V_PER_SA = 1;
                     }
                 }
@@ -1576,13 +1576,13 @@ void Cache::reset_state() {
 
     SA_PER_V = gpic_core_num;
     DC_reg = 1;
-    VL_reg[0] = gpic_core_num * 256;
+    VL_reg[0] = gpic_core_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = new bool[gpic_core_num * 256];
-    for (int element = 0; element < gpic_core_num * 256; element++) {
+    VM_reg[0] = new bool[gpic_core_num * LANES_PER_SA];
+    for (int element = 0; element < gpic_core_num * LANES_PER_SA; element++) {
         VM_reg[0][element] = true;
     }
     VM_reg[1] = new bool[1];

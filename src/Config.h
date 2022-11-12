@@ -10,6 +10,10 @@
 #define MAX_CORE_ID 16
 #define MAX_GPIC_SA_NUM 64
 
+#ifndef LANES_PER_SA
+#define LANES_PER_SA 256
+#endif
+
 // #define DEBUG
 
 #ifndef DEBUG
