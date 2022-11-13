@@ -358,7 +358,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                 hint("While2, %d clk!\n", clks);
                 end = !trace.get_dramtrace_request(addr, type);
                 if (!end) {
-                    req.addr = addr;
+                    req.addr = addr * 64;
                     req.type = type;
                     req.reqid = id;
                     id++;
