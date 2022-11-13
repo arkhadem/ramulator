@@ -451,7 +451,7 @@ bool Cache::memory_controller(Request req) {
                 }
                 if (req.dim == 0) {
                     if (req.value <= LANES_PER_SA) {
-                        V_PER_SA = ((LANES_PER_SA - 1) / req.value) + 1;
+                        V_PER_SA = LANES_PER_SA / req.value;
                         SA_PER_V = 1;
                     } else {
                         SA_PER_V = ((req.value - 1) / LANES_PER_SA) + 1;
@@ -517,8 +517,8 @@ bool Cache::memory_controller(Request req) {
         }
     } else {
 
-        if (((((VC_reg * SA_PER_V) + 1) / V_PER_SA) - 1) > gpic_core_num) {
-            printf("Error: ((((VC_reg(%ld) * SA_PER_V(%d)) + 1) / V_PER_SA(%d)) - 1) (%ld) > gpic_core_num(%d)\n", VC_reg, SA_PER_V, V_PER_SA, ((((VC_reg * SA_PER_V) + 1) / V_PER_SA) - 1), gpic_core_num);
+        if (((((VC_reg * SA_PER_V) - 1) / V_PER_SA) + 1) > gpic_core_num) {
+            printf("Error: ((((VC_reg(%ld) * SA_PER_V(%d)) - 1) / V_PER_SA(%d)) + 1) (%ld) > gpic_core_num(%d)\n", VC_reg, SA_PER_V, V_PER_SA, ((((VC_reg * SA_PER_V) - 1) / V_PER_SA) + 1), gpic_core_num);
             exit(-1);
         }
 

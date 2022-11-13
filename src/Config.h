@@ -2,6 +2,7 @@
 #define __CONFIG_H
 
 #include <cassert>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <map>
