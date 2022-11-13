@@ -89,7 +89,7 @@ void declare_configuration(const Config &configs) {
 
     ramulator::core_configs[core_type_t::SILVER].gpic_core_num = 8;
     ramulator::core_configs[core_type_t::GOLD].gpic_core_num = 16;
-    ramulator::core_configs[core_type_t::PRIME].gpic_core_num = 64;
+    ramulator::core_configs[core_type_t::PRIME].gpic_core_num = 32;
 
     ramulator::core_configs[core_type_t::SILVER].out_of_order = false;
     ramulator::core_configs[core_type_t::GOLD].out_of_order = true;

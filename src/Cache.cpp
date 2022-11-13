@@ -15,8 +15,8 @@ namespace ramulator {
 
 Cache::Cache(int size, int assoc, int block_size,
              int mshr_entry_num, float access_energy, Level level,
-             std::shared_ptr<CacheSystem> cachesys, int gpic_core_num, int core_id)
-    : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), gpic_core_num(gpic_core_num * 256 / LANES_PER_SA) {
+             std::shared_ptr<CacheSystem> cachesys, int _gpic_core_num, int core_id)
+    : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), gpic_core_num(_gpic_core_num * 256 / LANES_PER_SA) {
 
     hint("level %d size %d assoc %d block_size %d\n",
          int(level), size, assoc, block_size);
@@ -25,6 +25,7 @@ Cache::Cache(int size, int assoc, int block_size,
         level_string = "L1";
     } else if (level == Level::L2) {
         level_string = "L2";
+        printf("Core count: %d, Lanes per core: %d\n", gpic_core_num, LANES_PER_SA);
     } else if (level == Level::L3) {
         level_string = "L3";
     }
