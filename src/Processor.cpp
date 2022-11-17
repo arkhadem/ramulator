@@ -809,17 +809,17 @@ bool Window::find_older_stores(long a_s, long a_e, Request::Type &type, int loca
     int idx = tail;
     while (idx != location) {
         Request curr_request = req_list.at(idx);
-        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("store") != string::npos)) {
+        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("pc3_store") != string::npos)) {
             // It's a GPIC store
             if (curr_request.opcode.find("storer") != string::npos) {
                 // It's a random store, not predictable
                 type = Request::Type::GPIC;
-                return true;
+                found = true;
             }
             if (overlap(a_s, a_e, curr_request.addr, curr_request.addr_end)) {
                 // It has overlap
                 type = Request::Type::GPIC;
-                return true;
+                found = true;
             }
         }
         if (curr_request.type == Request::Type::WRITE) {
@@ -835,14 +835,26 @@ bool Window::find_older_stores(long a_s, long a_e, Request::Type &type, int loca
     return found;
 }
 
-bool Window::find_any_older_stores(int location, Request::Type type) {
+bool Window::find_any_older_stores(int location) {
     int idx = tail;
     while (idx != location) {
         Request curr_request = req_list.at(idx);
-        if ((type == Request::Type::WRITE) && (curr_request.type == Request::Type::WRITE)) {
+        if (curr_request.type == Request::Type::WRITE) {
             return true;
         }
-        if ((type == Request::Type::GPIC) && (curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("storer") != string::npos)) {
+        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("pc3_store") != string::npos)) {
+            return true;
+        }
+        idx = (idx + 1) % depth;
+    }
+    return false;
+}
+
+bool Window::find_older_gpic_random_stores(int location) {
+    int idx = tail;
+    while (idx != location) {
+        Request curr_request = req_list.at(idx);
+        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("pc3_storer") != string::npos)) {
             return true;
         }
         idx = (idx + 1) % depth;
@@ -914,7 +926,7 @@ bool Window::check_send(Request &req, int location) {
         if (find_older_unsent(location, req.dst) == false) {
             // config instructions must be sent in order
             if ((req.addr != -1) && (req.opcode.find("store") != string::npos)) {
-                // GPIC STORE: Do Nothing
+                // GPIC STORE: Do Nothing / must be issued at the head of the rob
                 hint("failed to send @%d %s because store must be at the head of ROB\n", get_location(location), req.c_str());
                 return false;
             } else if ((req.addr != -1) && (req.opcode.find("load") != string::npos)) {
@@ -922,7 +934,7 @@ bool Window::check_send(Request &req, int location) {
                 bool older_store = false;
                 if (req.opcode.find("loadr") != string::npos) {
                     // If it's a random load, check with all older stores
-                    older_store = false; //find_any_older_stores(location, Request::Type::WRITE);
+                    older_store = find_any_older_stores(location);
                 } else {
                     // It's a strided load, find stores to the same addresses
                     Request::Type type;
@@ -964,7 +976,7 @@ bool Window::check_send(Request &req, int location) {
         // CPU LOAD: Find older stores
         Request::Type type;
         assert((req.addr_starts.size() == 1) && (req.addr_ends.size() == 1) && (req.addr_starts[0] == req.addr));
-        if (find_any_older_stores(location, Request::Type::GPIC)) {
+        if (find_older_gpic_random_stores(location)) {
             // There is a random GPIC store
             // Do Nothing
             hint("failed to send @%d %s because of any older GPIC random store\n", get_location(location), req.c_str());

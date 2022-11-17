@@ -12,7 +12,7 @@
 #define MAX_GPIC_SA_NUM 64
 
 #ifndef LANES_PER_SA
-#define LANES_PER_SA 256
+#define LANES_PER_SA 1024
 #endif
 
 // #define DEBUG
