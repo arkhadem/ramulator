@@ -300,7 +300,7 @@ vector<Request> dc_block_sent_requests[8];
 Request *block_req = new Request[8];
 
 void dc_blocks_clock(int block) {
-    hint("Block [%d]: Clocking...\n", block, next_req.c_str());
+    hint("Block [%d]: Clocking...\n", block);
     while (dc_block_tosend_remained[block] > 0) {
         Request next_req = dc_block_tosend_requests[block][dc_block_tosend_next[block]];
         if (next_req.type == Request::Type::DC_START) {
