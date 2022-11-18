@@ -293,37 +293,44 @@ ramulator::Cache *dc_llc;
 ramulator::Cache *dc_l2;
 std::shared_ptr<CacheSystem> dc_cachesys;
 vector<Request> dc_block_tosend_requests[8];
+int dc_block_tosend_next[8];
+int dc_block_tosend_total[8];
+int dc_block_tosend_remained[8];
 vector<Request> dc_block_sent_requests[8];
 Request *block_req = new Request[8];
 
 bool dc_blocks_clock(int block) {
     bool return_val = false;
-    while (dc_block_tosend_requests[block].size() > 0) {
-        if (dc_block_tosend_requests[block][0].type == Request::Type::DC_START) {
+    while (dc_block_tosend_remained[block] > 0) {
+        Request next_req = dc_block_tosend_requests[block][dc_block_tosend_next[block]];
+        if (next_req.type == Request::Type::DC_START) {
             assert(dc_block_sent_requests[block].size() == 0);
-            hint("Block [%d]: DC_Start removed (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
-            dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
-        } else if (dc_block_tosend_requests[block][0].type == Request::Type::DC_FINISH) {
+            hint("Block [%d]: DC_Start removed (%s)\n", block, next_req.c_str());
+            dc_block_tosend_next[block] += 1;
+            dc_block_tosend_remained[block] -= 1;
+        } else if (next_req.type == Request::Type::DC_FINISH) {
             if (dc_block_sent_requests[block].size() == 0) {
-                hint("Block [%d]: DC_Finish removed (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
-                dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
+                hint("Block [%d]: DC_Finish removed (%s)\n", block, next_req.c_str());
+                dc_block_tosend_next[block] += 1;
+                dc_block_tosend_remained[block] -= 1;
             } else {
-                hint("Block [%d]: DC_Finish stalled (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
+                hint("Block [%d]: DC_Finish stalled (%s)\n", block, next_req.c_str());
                 break;
             }
         } else {
-            assert((dc_block_tosend_requests[block][0].type == Request::Type::READ) || (dc_block_tosend_requests[block][0].type == Request::Type::WRITE));
-            if (dc_l2->should_send(dc_block_tosend_requests[block][0]) == false) {
-                hint("Block [%d]: Mem addr should not be sent (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
+            assert((next_req.type == Request::Type::READ) || (next_req.type == Request::Type::WRITE));
+            if (dc_l2->should_send(next_req) == false) {
+                hint("Block [%d]: Mem addr should not be sent (%s)\n", block, next_req.c_str());
                 break;
             } else {
-                if (dc_l2->send(dc_block_tosend_requests[block][0]) == false) {
-                    hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
+                if (dc_l2->send(next_req) == false) {
+                    hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, next_req.c_str());
                     break;
                 } else {
-                    hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
-                    dc_block_sent_requests[block].push_back(dc_block_tosend_requests[block][0]);
-                    dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
+                    hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, next_req.c_str());
+                    dc_block_sent_requests[block].push_back(next_req);
+                    dc_block_tosend_next[block] += 1;
+                    dc_block_tosend_remained[block] -= 1;
                 }
             }
         }
@@ -394,6 +401,9 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         block_req[block_idx].coreid = 0;
         block_req[block_idx].callback = dc_receive;
         block_req[block_idx].dc_blockid = 0;
+        dc_block_tosend_next[block_idx] = 0;
+        dc_block_tosend_remained[block_idx] = 0;
+        dc_block_tosend_total[block_idx] = 0;
     }
 
     int tick_mult = cpu_tick * mem_tick;
@@ -414,12 +424,16 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                     block_req[current_block].type = type;
                     block_req[current_block].reqid = -1;
                     dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
+                    dc_block_tosend_remained[current_block] += 1;
+                    dc_block_tosend_total[current_block] += 1;
                 } else {
                     id++;
                     block_req[current_block].addr = addr;
                     block_req[current_block].type = type;
                     block_req[current_block].reqid = id;
                     dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
+                    dc_block_tosend_remained[current_block] += 1;
+                    dc_block_tosend_total[current_block] += 1;
                     total_access++;
                     if (type == Request::Type::READ)
                         reads++;
@@ -480,8 +494,8 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
         if (finished) {
             for (int block_idx = 0; block_idx < 8; block_idx++) {
-                if (dc_block_tosend_requests[block_idx].size() != 0) {
-                    hint("There is still %d requests in block %d, first request is %s\n", (int)dc_block_tosend_requests[block_idx].size(), block_idx, dc_block_tosend_requests[block_idx][0].c_str());
+                if (dc_block_tosend_remained[block_idx] != 0) {
+                    hint("There is still %d requests in block %d, first request is %s\n", dc_block_tosend_remained[block_idx], block_idx, dc_block_tosend_requests[block_idx][dc_block_tosend_next[block_idx]].c_str());
                     finished = false;
                 }
             }
