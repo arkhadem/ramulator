@@ -337,6 +337,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     bool finished = false;
     bool should;
     int id = 0;
+    int total_access = 0;
     while (finished == false) {
         hint("While1, %d clk!\n", clks);
 
@@ -358,7 +359,8 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                 hint("While2, %d clk!\n", clks);
                 end = !trace.get_dramtrace_request(addr, type);
                 if (!end) {
-                    req.addr = addr * 64;
+                    total_access++;
+                    req.addr = addr;
                     req.type = type;
                     req.reqid = id;
                     id++;
@@ -400,7 +402,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
-    printf("finished in %d clks\n", clks / cpu_tick);
+    printf("finished %d accesses in %d clks\n", total_access, clks / cpu_tick);
 }
 
 template <typename T>
