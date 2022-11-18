@@ -1213,7 +1213,20 @@ void Window::set_ready(Request req, int mask) {
     }
 }
 
-const char *req_type_names[] = {"READ", "WRITE", "REFRESH", "POWERDOWN", "SELFREFRESH", "EXTENSION", "MAX"};
+const char *req_type_names[] = {"READ",
+                                "WRITE",
+                                "REFRESH",
+                                "POWERDOWN",
+                                "SELFREFRESH",
+                                "EXTENSION",
+                                "GPIC",
+                                "FREE",
+                                "INITIALIZED",
+                                "EVICT_DIRTY",
+                                "EVICT_CLEAN",
+                                "DC_START",
+                                "DC_FINISH",
+                                "MAX"};
 
 Trace::Trace(vector<const char *> trace_fnames) {
     std::ifstream *files_arr = new std::ifstream[trace_fnames.size()]();
@@ -1514,18 +1527,29 @@ bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type) {
             continue;
         }
 
-        size_t pos;
-        req_addr = std::stoul(line, &pos, 16);
+        string first_word = get_remove_first_word(line);
+        string second_word = get_remove_first_word(line);
 
-        pos = line.find_first_not_of(' ', pos + 1);
-
-        if (pos == string::npos || line.substr(pos)[0] == 'R')
+        if (first_word.compare("start") == 0) {
+            req_type = Request::Type::DC_START;
+            req_addr = std::stoi(first_word);
+            hint("get_dramtrace_request returned block: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
+        } else if (first_word.compare("finish") == 0) {
+            req_type = Request::Type::DC_FINISH;
+            req_addr = std::stoi(first_word);
+            hint("get_dramtrace_request returned block: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
+        } else if (second_word.compare("R") == 0) {
             req_type = Request::Type::READ;
-        else if (line.substr(pos)[0] == 'W')
+            req_addr = std::stoul(line, nullptr, 16);
+            hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
+        } else if (second_word.compare("W") == 0) {
             req_type = Request::Type::WRITE;
-        else
-            assert(false);
-        hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
+            req_addr = std::stoul(line, nullptr, 16);
+            hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
+        } else {
+            printf("Error in line %s %s\n", first_word.c_str(), second_word.c_str());
+            exit(-2);
+        }
         last_trace++;
         return true;
     }

@@ -3,8 +3,10 @@
 #include "DRAM.h"
 #include "Memory.h"
 #include "Processor.h"
+#include "Request.h"
 #include "SpeedyController.h"
 #include "Statistics.h"
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,6 +14,7 @@
 #include <map>
 #include <stdlib.h>
 #include <string>
+#include <vector>
 
 /* Standards */
 #include "ALDRAM.h"
@@ -289,10 +292,61 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
 ramulator::Cache *dc_llc;
 ramulator::Cache *dc_l2;
 std::shared_ptr<CacheSystem> dc_cachesys;
+vector<Request> dc_block_tosend_requests[8];
+vector<Request> dc_block_sent_requests[8];
+Request *block_req = new Request[8];
+
+void dc_blocks_clock(int block) {
+    while (dc_block_tosend_requests[block].size() > 0) {
+        if (dc_block_tosend_requests[block][0].type == Request::Type::DC_START) {
+            assert(dc_block_sent_requests[block].size() == 0);
+            dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
+        } else if (dc_block_tosend_requests[block][0].type == Request::Type::DC_FINISH) {
+            if (dc_block_sent_requests[block].size() == 0) {
+                dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
+            } else {
+                break;
+            }
+        } else {
+            assert((dc_block_tosend_requests[block][0].type == Request::Type::READ) || (dc_block_tosend_requests[block][0].type == Request::Type::WRITE));
+            if (dc_l2->should_send(dc_block_tosend_requests[block][0]) == false) {
+                break;
+            } else {
+                if (dc_l2->send(dc_block_tosend_requests[block][0]) == false) {
+                    break;
+                } else {
+                    dc_block_sent_requests[block].push_back(dc_block_tosend_requests[block][0]);
+                    dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
+                }
+            }
+        }
+    }
+}
+
+void dc_blocks_clock() {
+    int block_start = rand() % 8;
+    for (int block_offset = 0; block_offset < 8; block_offset++) {
+        int block_idx = (block_start + block_offset) % 8;
+        dc_blocks_clock(block_idx);
+    }
+}
 
 void dc_receive(Request &req) {
     hint("DC received %s\n", req.c_str());
     dc_llc->callback(req);
+
+    // Removing corresponding DC sent requests
+    for (int block_idx = 0; block_idx < 8; block_idx++) {
+        auto req_it = dc_block_sent_requests[block_idx].begin();
+        while (req_it != dc_block_sent_requests[block_idx].end()) {
+            if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
+                hint("req %s hitted with block %d\n", req.c_str(), block_idx);
+                req_it = dc_block_sent_requests[block_idx].erase(req_it);
+            } else {
+                ++req_it;
+            }
+        }
+    }
 }
 
 template <typename T>
@@ -328,27 +382,28 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     map<int, int> latencies;
     auto read_complete = [&latencies](Request &r) { latencies[r.depart - r.arrive]++; };
 
-    Request req(addr, type, read_complete);
-    req.coreid = 0;
-    req.callback = dc_receive;
+    for (int block_idx = 0; block_idx < 8; block_idx++) {
+        block_req[block_idx] = Request(addr, type, read_complete);
+        block_req[block_idx].coreid = 0;
+        block_req[block_idx].callback = dc_receive;
+        block_req[block_idx].dc_blockid = 0;
+    }
 
     int tick_mult = cpu_tick * mem_tick;
     long i = 0;
     bool finished = false;
-    bool should;
     int id = 0;
     int total_access = 0;
+    long current_block = 0;
     while (finished == false) {
         hint("While1, %d clk!\n", clks);
 
         if (end == false) {
             if (stall == true) {
-                should = dc_l2->should_send(req);
-                if (should == true)
-                    stall = !dc_l2->send(req);
-                else
-                    stall = true;
+                stall = !dc_l2->should_send(block_req[current_block]);
                 if (stall == false) {
+                    dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
+                    total_access++;
                     if (type == Request::Type::READ)
                         reads++;
                     else if (type == Request::Type::WRITE)
@@ -359,21 +414,28 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                 hint("While2, %d clk!\n", clks);
                 end = !trace.get_dramtrace_request(addr, type);
                 if (!end) {
-                    total_access++;
-                    req.addr = addr;
-                    req.type = type;
-                    req.reqid = id;
-                    id++;
-                    should = dc_l2->should_send(req);
-                    if (should == true)
-                        stall = !dc_l2->send(req);
-                    else
-                        stall = true;
-                    if (stall == false) {
-                        if (type == Request::Type::READ)
-                            reads++;
-                        else if (type == Request::Type::WRITE)
-                            writes++;
+                    if ((type == Request::Type::DC_START) || (type == Request::Type::DC_FINISH)) {
+                        current_block = addr;
+                        block_req[current_block].addr = addr;
+                        block_req[current_block].type = type;
+                        block_req[current_block].reqid = -1;
+                        dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
+                        dc_blocks_clock(current_block);
+                    } else {
+                        block_req[current_block].addr = addr;
+                        block_req[current_block].type = type;
+                        block_req[current_block].reqid = id;
+                        id++;
+                        stall = !dc_l2->should_send(block_req[current_block]);
+                        if (stall == false) {
+                            dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
+                            dc_blocks_clock(current_block);
+                            total_access++;
+                            if (type == Request::Type::READ)
+                                reads++;
+                            else if (type == Request::Type::WRITE)
+                                writes++;
+                        }
                     }
                 } else {
                     memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
@@ -382,10 +444,18 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
             }
         } else {
             finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
-            // printf("cachesys %d, l2 %d, llc %d, memory %d\n", dc_cachesys->finished(), dc_l2->finished(), dc_llc->finished(), (!memory.pending_requests()));
+            if (finished) {
+                for (int block_idx = 0; block_idx < 8; block_idx++) {
+                    if (dc_block_tosend_requests[block_idx].size() != 0) {
+                        hint("There is still %d requests in block %d, first request is %s\n", (int)dc_block_tosend_requests[block_idx].size(), block_idx, dc_block_tosend_requests[block_idx][0].c_str());
+                        finished = false;
+                    }
+                }
+            }
         }
 
         if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
+            dc_blocks_clock();
             dc_l2->tick();
             dc_cachesys->tick();
             if (dc_cachesys->clk % 1000000 == 0) {

@@ -37,6 +37,8 @@ public:
         INITIALIZED,
         EVICT_DIRTY,
         EVICT_CLEAN,
+        DC_START,
+        DC_FINISH,
         MAX
     } type;
     int sid = -1;
@@ -57,6 +59,8 @@ public:
 
     // specify which core sent this request
     int coreid = -1;
+
+    int dc_blockid = -1;
 
     // specify which unit in the core sent this request
     enum class UnitID {

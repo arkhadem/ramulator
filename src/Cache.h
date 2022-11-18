@@ -139,6 +139,11 @@ public:
 
     bool should_send(Request req);
 
+    // Align the address to cache line size
+    long align(long addr) {
+        return (addr & ~(block_size - 1l));
+    }
+
 protected:
     int core_id;
     bool is_first_level;
@@ -202,11 +207,6 @@ protected:
 
     long get_tag(long addr) {
         return (addr >> tag_offset);
-    }
-
-    // Align the address to cache line size
-    long align(long addr) {
-        return (addr & ~(block_size - 1l));
     }
 
     // Evict the cache line from higher level to this level.
