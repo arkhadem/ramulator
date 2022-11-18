@@ -2,6 +2,7 @@
 #define __REQUEST_H
 
 #include "Config.h"
+#include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -237,6 +238,10 @@ public:
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(EVICT_CLEAN)], addr(0x" << std::hex << addr << ")]";
         } else if (type == Type::EVICT_DIRTY) {
             req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(EVICT_DIRTY)], addr(0x" << std::hex << addr << ")]";
+        } else if (type == Type::DC_START) {
+            req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(DC_START)], block(" << addr << ")]";
+        } else if (type == Type::DC_FINISH) {
+            req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(DC_FINISH)], block(" << addr << ")]";
         } else {
             assert(false);
         }
