@@ -299,8 +299,8 @@ int dc_block_tosend_remained[8];
 vector<Request> dc_block_sent_requests[8];
 Request *block_req = new Request[8];
 
-bool dc_blocks_clock(int block) {
-    bool return_val = false;
+void dc_blocks_clock(int block) {
+    hint("Block [%d]: Clocking...\n", block, next_req.c_str());
     while (dc_block_tosend_remained[block] > 0) {
         Request next_req = dc_block_tosend_requests[block][dc_block_tosend_next[block]];
         if (next_req.type == Request::Type::DC_START) {
@@ -338,6 +338,7 @@ bool dc_blocks_clock(int block) {
 }
 
 void dc_blocks_clock_all() {
+    hint("Clocking all blocks\n");
     int block_start = rand() % 8;
     for (int block_offset = 0; block_offset < 8; block_offset++) {
         int block_idx = (block_start + block_offset) % 8;
