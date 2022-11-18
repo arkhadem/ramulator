@@ -300,21 +300,27 @@ void dc_blocks_clock(int block) {
     while (dc_block_tosend_requests[block].size() > 0) {
         if (dc_block_tosend_requests[block][0].type == Request::Type::DC_START) {
             assert(dc_block_sent_requests[block].size() == 0);
+            hint("Block [%d]: DC_Start removed (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
             dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
         } else if (dc_block_tosend_requests[block][0].type == Request::Type::DC_FINISH) {
             if (dc_block_sent_requests[block].size() == 0) {
+                hint("Block [%d]: DC_Finish removed (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
                 dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
             } else {
+                hint("Block [%d]: DC_Finish stalled (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
                 break;
             }
         } else {
             assert((dc_block_tosend_requests[block][0].type == Request::Type::READ) || (dc_block_tosend_requests[block][0].type == Request::Type::WRITE));
             if (dc_l2->should_send(dc_block_tosend_requests[block][0]) == false) {
+                hint("Block [%d]: Mem addr should not be sent (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
                 break;
             } else {
                 if (dc_l2->send(dc_block_tosend_requests[block][0]) == false) {
+                    hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
                     break;
                 } else {
+                    hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, dc_block_tosend_requests[block][0].c_str());
                     dc_block_sent_requests[block].push_back(dc_block_tosend_requests[block][0]);
                     dc_block_tosend_requests[block].erase(dc_block_tosend_requests[block].begin());
                 }
@@ -340,7 +346,7 @@ void dc_receive(Request &req) {
         auto req_it = dc_block_sent_requests[block_idx].begin();
         while (req_it != dc_block_sent_requests[block_idx].end()) {
             if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
-                hint("req %s hitted with block %d\n", req.c_str(), block_idx);
+                hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
                 req_it = dc_block_sent_requests[block_idx].erase(req_it);
             } else {
                 ++req_it;
