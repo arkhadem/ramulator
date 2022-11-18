@@ -1532,19 +1532,19 @@ bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type) {
 
         if (first_word.compare("start") == 0) {
             req_type = Request::Type::DC_START;
-            req_addr = std::stoi(first_word);
+            req_addr = std::stoi(second_word);
             hint("get_dramtrace_request returned block: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else if (first_word.compare("finish") == 0) {
             req_type = Request::Type::DC_FINISH;
-            req_addr = std::stoi(first_word);
+            req_addr = std::stoi(second_word);
             hint("get_dramtrace_request returned block: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else if (second_word.compare("R") == 0) {
             req_type = Request::Type::READ;
-            req_addr = std::stoul(line, nullptr, 16);
+            req_addr = std::stoul(second_word, nullptr, 16);
             hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else if (second_word.compare("W") == 0) {
             req_type = Request::Type::WRITE;
-            req_addr = std::stoul(line, nullptr, 16);
+            req_addr = std::stoul(second_word, nullptr, 16);
             hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else {
             printf("Error in line %s %s\n", first_word.c_str(), second_word.c_str());
