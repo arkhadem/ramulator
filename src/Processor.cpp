@@ -1540,11 +1540,11 @@ bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type) {
             hint("get_dramtrace_request returned block: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else if (second_word.compare("R") == 0) {
             req_type = Request::Type::READ;
-            req_addr = std::stoul(second_word, nullptr, 16);
+            req_addr = std::stoul(first_word, nullptr, 16);
             hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else if (second_word.compare("W") == 0) {
             req_type = Request::Type::WRITE;
-            req_addr = std::stoul(second_word, nullptr, 16);
+            req_addr = std::stoul(first_word, nullptr, 16);
             hint("get_dramtrace_request returned request address: %ld, type: %s\n", req_addr, req_type_names[(int)req_type]);
         } else {
             printf("Error in line %s %s\n", first_word.c_str(), second_word.c_str());
