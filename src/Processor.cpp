@@ -365,6 +365,14 @@ bool Core::dispatch_gpic() {
 #endif
 }
 
+bool hasEnding(std::string const &fullString, std::string const &ending) {
+    if (fullString.length() >= ending.length()) {
+        return (0 == fullString.compare(fullString.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
+    }
+}
+
 void Core::tick() {
     clk++;
 
@@ -403,21 +411,21 @@ void Core::tick() {
                 if (!more_reqs) {
                     break;
                 }
-                if (req_opcode.find("tob") != string::npos) {
+                if (hasEnding(req_opcode, "tob")) {
                     data_type = 8;
-                } else if ((req_opcode.find("tow") != string::npos) || (req_opcode.find("tohf") != string::npos)) {
+                } else if (hasEnding(req_opcode, "tow") || hasEnding(req_opcode, "tohf")) {
                     data_type = 16;
-                } else if ((req_opcode.find("todw") != string::npos) || (req_opcode.find("tof") != string::npos)) {
+                } else if (hasEnding(req_opcode, "todw") || hasEnding(req_opcode, "tof")) {
                     data_type = 32;
-                } else if ((req_opcode.find("toqw") != string::npos) || (req_opcode.find("todf") != string::npos)) {
+                } else if (hasEnding(req_opcode, "toqw") || hasEnding(req_opcode, "todf")) {
                     data_type = 64;
-                } else if (req_opcode.find("_b") != string::npos) {
+                } else if (hasEnding(req_opcode, "_b")) {
                     data_type = 8;
-                } else if ((req_opcode.find("_w") != string::npos) || (req_opcode.find("_hf") != string::npos)) {
+                } else if (hasEnding(req_opcode, "_w") || hasEnding(req_opcode, "_hf")) {
                     data_type = 16;
-                } else if ((req_opcode.find("_dw") != string::npos) || (req_opcode.find("_f") != string::npos)) {
+                } else if (hasEnding(req_opcode, "_dw") || hasEnding(req_opcode, "_f")) {
                     data_type = 32;
-                } else if ((req_opcode.find("_qw") != string::npos) || (req_opcode.find("_df") != string::npos)) {
+                } else if (hasEnding(req_opcode, "_qw") || hasEnding(req_opcode, "_df")) {
                     data_type = 64;
                 } else {
                     // It's a CPU load / store
