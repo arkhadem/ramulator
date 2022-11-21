@@ -132,6 +132,7 @@ _pc3_cvtu_btodw,24,0
 _pc3_cvts_btodw,24,0
 _pc3_cvtu_wtodw,16,0
 _pc3_cvts_wtodw,16,0
+_pc3_cvts_dwtoqw,32,0
 _pc3_assign_b,8,0
 _pc3_assign_w,16,0
 _pc3_assign_dw,32,0
