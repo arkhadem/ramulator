@@ -462,6 +462,10 @@ void Core::tick() {
                             assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * gpic_core_num));
                         } else if (req_opcode.find("count") != string::npos) {
                             DC_reg = req_value;
+                            VL_reg[0] = gpic_core_num * LANES_PER_SA;
+                            VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
+                            LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
+                            SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
                         } else {
                             assert(false);
                         }
@@ -701,6 +705,7 @@ void Core::reset_state() {
     req_addr_starts.clear();
     req_addr_ends.clear();
 
+    DC_reg = 1;
     VL_reg[0] = gpic_core_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;

@@ -459,7 +459,23 @@ bool Cache::memory_controller(Request req) {
                     }
                 }
             } else if (req.opcode.find("count") != string::npos) {
+                SA_PER_V = gpic_core_num;
                 DC_reg = req.value;
+                VL_reg[0] = gpic_core_num * LANES_PER_SA;
+                VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
+                VC_reg = 1;
+                LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
+                SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
+                VM_reg[0] = new bool[gpic_core_num * LANES_PER_SA];
+                for (int element = 0; element < gpic_core_num * LANES_PER_SA; element++) {
+                    VM_reg[0][element] = true;
+                }
+                VM_reg[1] = new bool[1];
+                VM_reg[1][0] = true;
+                VM_reg[2] = new bool[1];
+                VM_reg[2][0] = true;
+                VM_reg[3] = new bool[1];
+                VM_reg[3][0] = true;
             } else {
                 assert(false);
             }
