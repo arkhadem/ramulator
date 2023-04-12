@@ -159,7 +159,8 @@ protected:
     float access_energy;
     long last_id = 0;
     int gpic_core_num;
-    bool locked = false;
+    bool receive_locked = false;
+    bool crossbar_locked = false;
 
     std::vector<std::pair<long, std::shared_ptr<Line>>> mshr_entries;
 

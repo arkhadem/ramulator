@@ -466,6 +466,12 @@ void Core::tick() {
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
                             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
+                        } else if (req_opcode.find("init") != string::npos) {
+                            DC_reg = 1;
+                            VL_reg[0] = gpic_core_num * LANES_PER_SA;
+                            VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
+                            LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
+                            SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
                         } else {
                             assert(false);
                         }
@@ -476,14 +482,15 @@ void Core::tick() {
                     }
                     assert(dispatch_gpic());
                 } else if (req_opcode.find("_dict_") != string::npos) {
-                    // Only 8-bit dict is implemented
-                    assert(data_type == 8);
 
+                    long address_length = (long)(std::ceil((float)((data_type * 256) / 8)));
                     long req_addr_start = req_addr;
-                    long req_addr_end = req_addr + (LANES_PER_SA - 1);
+                    long req_addr_end = req_addr + (address_length - 1);
 
                     req_addr_starts.clear();
+                    req_addr_starts.push_back(req_addr_start);
                     req_addr_ends.clear();
+                    req_addr_ends.push_back(req_addr_end);
 
                     request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, -1, false, callback, id, Request::UnitID::CORE);
 
@@ -942,20 +949,20 @@ bool Window::check_send(Request &req, int location) {
                 // GPIC STORE: Do Nothing / must be issued at the head of the rob
                 hint("failed to send @%d %s because store must be at the head of ROB\n", get_location(location), req.c_str());
                 return false;
-            } else if ((req.addr != -1) && (req.opcode.find("load") != string::npos)) {
+            } else if ((req.addr != -1) && ((req.opcode.find("load") != string::npos) || (req.opcode.find("dict") != string::npos))) {
                 // GPIC LOAD: Find older stores
                 bool older_store = false;
                 if (req.opcode.find("loadr") != string::npos) {
                     // If it's a random load, check with all older stores
                     older_store = find_any_older_stores(location);
                 } else {
-                    // It's a strided load, find stores to the same addresses
+                    // It's a strided load or dictionary, find stores to the same addresses
                     Request::Type type;
                     older_store = find_older_stores(req.addr, req.addr_end, type, location);
                 }
                 if (older_store == true) {
                     // Do Nothing
-                    hint("failed to send @%d %s because of older CPU store\n", get_location(location), req.c_str());
+                    hint("failed to send @%d %s because of older CPU/GPIC store\n", get_location(location), req.c_str());
                     return false;
                 } else {
                     // Send it

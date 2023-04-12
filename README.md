@@ -66,6 +66,10 @@ To activate debugging logs, please compile ramulator with `DEBUG` flag:
   
     $ make -j CFLAGS='-DDEBUG'
 
+## How it works?
+
+Refer to [a relative link](LIME_README.md)
+
 ## References
 
 [\[1\] Kim et al. *Ramulator: A Fast and Extensible DRAM Simulator.* IEEE CAL

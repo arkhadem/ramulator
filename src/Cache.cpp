@@ -70,6 +70,9 @@ Cache::Cache(int size, int assoc, int block_size,
     VM_reg[3] = new bool[1];
     VM_reg[3][0] = true;
 
+    receive_locked = false;
+    crossbar_locked = false;
+
     hint("index_offset %d\n", index_offset);
     hint("index_mask 0x%x\n", index_mask);
     hint("tag_offset %d\n", tag_offset);
@@ -415,8 +418,8 @@ void Cache::random_dict_access_decoder(Request req) {
             self_retry_list.push_back(mem_req);
         }
     }
-    assert(locked == false);
-    locked = true;
+    assert(receive_locked == false);
+    receive_locked = true;
     hint("locking...\n");
 }
 
@@ -461,6 +464,24 @@ bool Cache::memory_controller(Request req) {
             } else if (req.opcode.find("count") != string::npos) {
                 SA_PER_V = gpic_core_num;
                 DC_reg = req.value;
+                VL_reg[0] = gpic_core_num * LANES_PER_SA;
+                VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
+                VC_reg = 1;
+                LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
+                SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
+                VM_reg[0] = new bool[gpic_core_num * LANES_PER_SA];
+                for (int element = 0; element < gpic_core_num * LANES_PER_SA; element++) {
+                    VM_reg[0][element] = true;
+                }
+                VM_reg[1] = new bool[1];
+                VM_reg[1][0] = true;
+                VM_reg[2] = new bool[1];
+                VM_reg[2][0] = true;
+                VM_reg[3] = new bool[1];
+                VM_reg[3][0] = true;
+            } else if (req.opcode.find("init") != string::npos) {
+                SA_PER_V = gpic_core_num;
+                DC_reg = 1;
                 VL_reg[0] = gpic_core_num * LANES_PER_SA;
                 VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                 VC_reg = 1;
@@ -1130,7 +1151,7 @@ void Cache::callback(Request &req) {
             hint("%s: decoding %s\n", level_string.c_str(), random_it->first.c_str());
             instrinsic_decoder(random_it->first);
             hint("unlocking...\n");
-            locked = false;
+            receive_locked = false;
             random_it = gpic_random_dict_to_mem_ops.erase(random_it);
             gpic_incoming_req_queue.erase(gpic_incoming_req_queue.begin());
         } else {
@@ -1283,18 +1304,18 @@ void Cache::tick() {
         self_retry_list.erase(self_retry_list.begin());
     }
 
-    if (locked == false) {
+    if (receive_locked == false) {
         while ((gpic_incoming_req_queue.size() > 0) && (cachesys->clk >= gpic_incoming_req_queue[0].first)) {
             if (memory_controller(gpic_incoming_req_queue[0].second) == false)
                 break;
-            if (locked == false)
+            if (receive_locked == false)
                 gpic_incoming_req_queue.erase(gpic_incoming_req_queue.begin());
             else
                 break;
         }
     }
 
-    // Instruction at the head of the GPIC queue is computed
+    // Check if computing the instruction at the head of the GPIC queue is finished
     // If it's a store or load it is unpacked
     // Otherwise, it is called back
     int sid_start = rand() % gpic_core_num;
@@ -1387,6 +1408,10 @@ void Cache::tick() {
                     op_trace << cachesys->clk << " " << sid << " F " << req.opcode << endl;
 
                     hint("16- %s instruction %s completed\n", level_string.c_str(), req.c_str());
+                    if (req.opcode.find("store") != string::npos) {
+                        hint("SID#%d unblocks Crossbar for dictionary\n", sid);
+                        crossbar_locked = false;
+                    }
                     callbacker(req);
                     gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
                     hint("Compute queue [%d] removed size: %d\n", sid, (int)gpic_compute_queue[sid].size());
@@ -1398,7 +1423,8 @@ void Cache::tick() {
         }
     }
 
-    // Instruction at the head of the GPIC queue gets ready for compute
+    // STEP1: Instruction at the head of the GPIC queue gets ready for compute
+    // Section 4 of LIME_README.MD
     sid_start = rand() % gpic_core_num;
     for (int sid_offset = 0; sid_offset < gpic_core_num; sid_offset++) {
         int sid = (sid_start + sid_offset) % gpic_core_num;
@@ -1455,6 +1481,15 @@ void Cache::tick() {
                     }
 
                 } else {
+                    if (gpic_compute_queue[sid].at(0).second.opcode.find("dict") != string::npos) {
+                        if (crossbar_locked) {
+                            hint("Cannot start %s computation due to crossbar lock\n", sid, gpic_compute_queue[sid].at(0).second.c_str());
+                            continue;
+                        } else {
+                            crossbar_locked = true;
+                            hint("SID#%d blocks Crossbar for dictionary\n", sid);
+                        }
+                    }
                     op_trace << cachesys->clk << " " << sid << " S " << gpic_compute_queue[sid].at(0).second.opcode << endl;
                     hint("Computing %s at %ld, %zu instructions in compute queue\n", gpic_compute_queue[sid].at(0).second.c_str(), cachesys->clk, gpic_compute_queue[sid].size());
                     last_gpic_instruction_compute_clk[sid] = cachesys->clk;
@@ -1554,6 +1589,8 @@ void Cache::reset_state() {
     GPIC_compute_total_energy = 0;
     GPIC_compute_comp_total_energy = 0;
     GPIC_compute_rdwr_total_energy = 0;
+    receive_locked = false;
+    crossbar_locked = false;
     assert(gpic_random_dict_to_mem_ops.size() == 0);
 
     for (int i = 0; i < gpic_incoming_req_queue.size(); i++) {
