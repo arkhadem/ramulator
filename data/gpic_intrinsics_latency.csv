@@ -1,4 +1,5 @@
 Intrinsic,LLC_W_R,LLC_C
+gpic3_init_dims,0,0
 gpic3_flusher,0,0
 _pc3_set_load_stride,0,0
 _pc3_set_store_stride,0,0
