@@ -1483,7 +1483,7 @@ void Cache::tick() {
                 } else {
                     if (gpic_compute_queue[sid].at(0).second.opcode.find("dict") != string::npos) {
                         if (crossbar_locked) {
-                            hint("Cannot start %s computation due to crossbar lock\n", sid, gpic_compute_queue[sid].at(0).second.c_str());
+                            hint("SID#%d Cannot start %s computation due to Crossbar lock\n", sid, gpic_compute_queue[sid].at(0).second.c_str());
                             continue;
                         } else {
                             crossbar_locked = true;
@@ -1515,8 +1515,9 @@ void Cache::tick() {
                 GPIC_host_device_cycles[sid]++;
             } else {
                 // Instruction at top must be move and stalled by dst SA
+                // or dict and stalled by crossbar
                 // hint("%s GPIC %d MOVE...\n", level_string.c_str(), sid);
-                assert(gpic_compute_queue[sid].at(0).second.opcode.find("move") != string::npos);
+                assert((gpic_compute_queue[sid].at(0).second.opcode.find("move") != string::npos) || (gpic_compute_queue[sid].at(0).second.opcode.find("dict") != string::npos));
                 GPIC_move_stall_total_cycles++;
                 GPIC_move_stall_cycles[sid]++;
             }
