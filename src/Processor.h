@@ -72,8 +72,9 @@ private:
     bool find_older_stores(long a_s, long a_e, Request::Type &type, int location);
     bool find_any_older_stores(int location);
     bool find_older_gpic_random_stores(int location);
-    bool find_older_unsent(int location, long dst_reg);
-    bool find_any_older_unsent(int location, long dst_reg);
+    bool check_WAR_dependency(int location, long dst_reg);
+    bool check_RAW_dependency(int location, long src1_reg, long src2_reg);
+    bool find_any_older_unsent(int location);
     int get_location(int location);
     bool check_send(Request &req, int location);
     int load = 0;
