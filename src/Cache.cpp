@@ -1408,7 +1408,7 @@ void Cache::tick() {
                     op_trace << cachesys->clk << " " << sid << " F " << req.opcode << endl;
 
                     hint("16- %s instruction %s completed\n", level_string.c_str(), req.c_str());
-                    if (req.opcode.find("store") != string::npos) {
+                    if (req.opcode.find("dict") != string::npos) {
                         hint("SID#%d unblocks Crossbar for dictionary\n", sid);
                         crossbar_locked = false;
                     }
