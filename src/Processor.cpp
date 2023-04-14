@@ -555,8 +555,24 @@ void Core::tick() {
                             }
                         }
 
+                        long stride_val = 0;
+                        if (DC_reg > 3) {
+                            assert(VL_reg[3] > 0);
+                            stride_val += ((VL_reg[3] - 1) * stride[3]);
+                        }
+                        if (DC_reg > 2) {
+                            assert(VL_reg[2] > 0);
+                            stride_val += ((VL_reg[2] - 1) * stride[2]);
+                        }
+                        if (DC_reg > 1) {
+                            assert(VL_reg[1] > 0);
+                            stride_val += ((VL_reg[1] - 1) * stride[1]);
+                        }
+                        stride_val *= data_type;
+                        stride_val /= data_type;
+
                         long req_addr_start = req_addr;
-                        long req_addr_end = req_addr + (((VL_reg[3] * stride[3] + VL_reg[2] * stride[2] + VL_reg[1] * stride[1]) * data_type) / 8) + address_length - 1;
+                        long req_addr_end = req_addr + stride_val + address_length - 1;
 
                         request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, req_stride[0], false, callback, id, Request::UnitID::CORE);
 
