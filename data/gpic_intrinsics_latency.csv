@@ -104,6 +104,7 @@ _pc3_mul_qw,0,2144
 _pc3_mul_hf,0,90
 _pc3_mul_f,0,346
 _pc3_mul_df,0,1463
+_pc3_mulmodp_dw,0,1584
 _pc3_min_b,24,8
 _pc3_min_w,48,16
 _pc3_min_dw,96,32
