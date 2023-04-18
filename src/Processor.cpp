@@ -533,7 +533,7 @@ void Core::tick() {
                                         if (DC_reg == 2)
                                             addr_1 = req_addr_starts[k];
                                         else
-                                            addr_1 = addr_2 + (stride[1] * j * data_type / 8);
+                                            addr_1 = addr_2 + (stride[1] * k * data_type / 8);
                                         req_addr_starts_temp.push_back(addr_1);
                                         req_addr_ends.push_back(addr_1 + address_length - 1);
                                     }
