@@ -201,7 +201,9 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
     printf("core type: %d, ipc: %d\n", core_type, ipc);
 
     assert(coreid < MAX_CORE_ID);
-    assert(((EXE_TYPE == INORDER_EXE) ^ (ISA_TYPE == RISCV_ISA)) == false);
+#if ISA_TYPE == RISCV_ISA
+    assert(EXE_TYPE == INORDER_EXE);
+#endif
     // set expected limit instruction for calculating weighted speedup
     expected_limit_insts = configs.get_expected_limit_insts();
     trace.expected_limit_insts = expected_limit_insts;
