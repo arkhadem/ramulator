@@ -326,9 +326,9 @@ void Cache::instrinsic_decoder(Request req) {
                 req.addr_end = min(((long)(std::ceil((float)(LANES_PER_SA * req.data_type * stride / 8))) + req.addr - 1), addr_end);
 
             req.addr_starts.clear();
-            req.addr_starts.push_back(addr_start);
+            req.addr_starts.push_back(req.addr);
             req.addr_ends.clear();
-            req.addr_ends.push_back(addr_end);
+            req.addr_ends.push_back(req.addr_end);
 
             // Schedule the instruction
             intrinsic_computer(req);
