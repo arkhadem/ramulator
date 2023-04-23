@@ -307,7 +307,7 @@ void Cache::instrinsic_decoder(Request req) {
 #if ISA_TYPE == RISCV_ISA
         assert(req.vid != -1);
 
-        if (V_masked[req.vid] == false) {
+        if (V_masked[req.vid]) {
             // This vector is masked
             hint("Request %s masked!\n", req.c_str());
             gpic_vop_to_num_sop[req] = 0;
@@ -403,7 +403,7 @@ void Cache::instrinsic_decoder(Request req) {
 #if ISA_TYPE == RISCV_ISA
         assert(req.vid != -1);
 
-        if (V_masked[req.vid] == false) {
+        if (V_masked[req.vid]) {
             // This vector is masked
             hint("Request %s masked!\n", req.c_str());
             gpic_vop_to_num_sop[req] = 0;
