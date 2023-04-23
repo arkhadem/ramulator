@@ -519,9 +519,22 @@ void Core::tick() {
 
                     request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, -1, false, callback, id, Request::UnitID::CORE);
 
+#if ISA_TYPE == RISCV_ISA
+                    int idx = 0;
+                    for (int i = 0; i < VL_reg[3]; i++) {
+                        for (int j = 0; j < VL_reg[2]; j++) {
+                            for (int k = 0; k < VL_reg[1]; k++) {
+                                request.vid = idx;
+                                dispatch_gpic();
+                                idx++;
+                            }
+                        }
+                    }
+#else
                     if (dispatch_gpic() == false) {
                         break;
                     }
+#endif
                 } else {
                     if ((req_opcode.find("load") != string::npos) || (req_opcode.find("store") != string::npos)) {
                         // it's a load or store GPIC instruction
@@ -594,6 +607,7 @@ void Core::tick() {
                                     request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts_temp, req_addr_ends_temp, data_type, req_stride[0], false, callback, id, Request::UnitID::CORE);
                                     request.vid = idx;
                                     dispatch_gpic();
+                                    idx++;
                                 }
                             }
                         }
@@ -634,6 +648,7 @@ void Core::tick() {
                                     request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
                                     request.vid = idx;
                                     dispatch_gpic();
+                                    idx++;
                                 }
                             }
                         }
