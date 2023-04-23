@@ -302,11 +302,11 @@ void Cache::instrinsic_decoder(Request req) {
 
         gpic_vop_to_num_sop[req] = SA_PER_V;
         req.stride = stride;
+        long addr_start = req.addr;
+        long addr_end = req.addr_end;
+
         // For each SA of the vector
         for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
-            req.sid = vid_to_sid(req.vid, sid_offset);
-            req.min_eid = sid_offset * LANES_PER_SA;
-            req.max_eid = (req.min_eid + LANES_PER_SA) < VL_reg[0] ? (req.min_eid + LANES_PER_SA) : VL_reg[0];
 
             if (SA_masked[req.sid]) {
                 // All vectors of this SRAM array are masked
@@ -314,6 +314,21 @@ void Cache::instrinsic_decoder(Request req) {
                 gpic_vop_to_num_sop[req]--;
                 continue;
             }
+
+            req.sid = vid_to_sid(req.vid, sid_offset);
+            req.min_eid = sid_offset * LANES_PER_SA;
+            req.max_eid = (req.min_eid + LANES_PER_SA) < VL_reg[0] ? (req.min_eid + LANES_PER_SA) : VL_reg[0];
+
+            req.addr = addr_start + (long)(std::ceil((float)(sid_offset * LANES_PER_SA * req.data_type * stride / 8)));
+            if (stride == 0)
+                req.addr_end = min(((long)(std::ceil((float)(req.data_type / 8))) + req.addr - 1), addr_end);
+            else
+                req.addr_end = min(((long)(std::ceil((float)(LANES_PER_SA * req.data_type * stride / 8))) + req.addr - 1), addr_end);
+
+            req.addr_starts.clear();
+            req.addr_starts.push_back(addr_start);
+            req.addr_ends.clear();
+            req.addr_ends.push_back(addr_end);
 
             // Schedule the instruction
             intrinsic_computer(req);
