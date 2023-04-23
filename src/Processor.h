@@ -14,13 +14,20 @@
 #include <string>
 #include <vector>
 
-#define INORDER 0
-#define OUTORDER 1
-#define DVI 2
-#define ORACLE 3
+#define INORDER_EXE 0
+#define OUTORDER_EXE 1
+#define DVI_EXE 2
+#define ORACLE_EXE 3
 
-#ifndef EXETYPE
-#define EXETYPE DVI
+#ifndef EXE_TYPE
+#define EXE_TYPE INORDER_EXE
+#endif
+
+#define RISCV_ISA 0
+#define LIME_ISA 1
+
+#ifndef ISA_TYPE
+#define ISA_TYPE RISCV_ISA
 #endif
 
 namespace ramulator {
@@ -64,7 +71,7 @@ public:
     void set_ready(Request req, int mask);
     long tick();
     void reset_state();
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
     void add_free_instr(int data_type);
 #endif
 
@@ -89,7 +96,7 @@ private:
     std::vector<Request> req_list;
     vector<Request> retry_list;
     Core *core;
-    // #if (EXETYPE == OUTORDER)
+    // #if (EXE_TYPE == OUTORDER_EXE)
     //     long allocated_pr = 0;
     //     bool all_vr_allocated = false;
     // #endif
@@ -128,9 +135,9 @@ public:
     bool no_shared_cache = true;
     bool gpic_mode = false;
     int gpic_level = 1;
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
     long free_pr = 256;
-#elif (EXETYPE == OUTORDER)
+#elif (EXE_TYPE == OUTORDER_EXE)
     long free_pr = 64;
 #endif
 
@@ -139,7 +146,7 @@ public:
 
     ScalarStat record_cycs;
     ScalarStat record_insts;
-#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+#if (EXE_TYPE == OUTORDER_EXE) || (EXE_TYPE == DVI_EXE)
     ScalarStat stalled_cycs;
 #endif
 
@@ -174,10 +181,11 @@ private:
     long req_src1 = -1;
     long req_src2 = -1;
 
-    long DC_reg;
+    long VC_reg = 1;
+    long DC_reg = 1;
     long VL_reg[4];
-    long LS_reg[4];
-    long SS_reg[4];
+    long LS_reg[4] = {0, 0, 0, 0};
+    long SS_reg[4] = {0, 0, 0, 0};
 
     bool did_retired;
 
@@ -188,8 +196,11 @@ private:
     MemoryBase &memory;
 
     bool warmed_up = false;
+#if ISA_TYPE == RISCV_ISA
+    std::vector<Request> req_wait_list;
+#endif
 
-#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+#if (EXE_TYPE == OUTORDER_EXE) || (EXE_TYPE == DVI_EXE)
     bool dispatch_stalled = false;
 #endif
 };

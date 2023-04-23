@@ -201,6 +201,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
     printf("core type: %d, ipc: %d\n", core_type, ipc);
 
     assert(coreid < MAX_CORE_ID);
+    assert(((EXE_TYPE == INORDER_EXE) ^ (ISA_TYPE == RISCV_ISA)) == false);
     // set expected limit instruction for calculating weighted speedup
     expected_limit_insts = configs.get_expected_limit_insts();
     trace.expected_limit_insts = expected_limit_insts;
@@ -240,7 +241,11 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
         first_level_cache = caches[1].get();
 
         if (configs.is_gpic()) {
+#if ISA_TYPE == RISCV_ISA
+            req_wait_list.clear();
+#endif
             DC_reg = 1;
+            VC_reg = 1;
             VL_reg[0] = gpic_core_num * LANES_PER_SA;
             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
@@ -284,7 +289,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
         .desc("Retired instruction number when record cycle number. (Only valid when expected limit instruction number is non zero in config file.)")
         .precision(0);
 
-#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+#if (EXE_TYPE == OUTORDER_EXE) || (EXE_TYPE == DVI_EXE)
     stalled_cycs.name("stall_cycs_core_" + to_string(id))
         .desc("Record cycle number for dispatch stalls.")
         .precision(0);
@@ -337,7 +342,7 @@ int *Core::stride_evaluator(long *rstride, bool load) {
 }
 
 bool Core::dispatch_gpic() {
-#if (EXETYPE == DVI) || (EXETYPE == OUTORDER)
+#if (EXE_TYPE == DVI_EXE) || (EXE_TYPE == OUTORDER_EXE)
     if (req_dst != -1) {
         // it needs physical register allocation
         if (free_pr >= data_type) {
@@ -360,8 +365,15 @@ bool Core::dispatch_gpic() {
         return true;
     }
 #else
+#if ISA_TYPE == RISCV_ISA
+    if (window.is_full())
+        req_wait_list.push_back(request);
+    else
+        window.insert(request);
+#else
     window.insert(request);
     return true;
+#endif
 #endif
 }
 
@@ -397,7 +409,7 @@ void Core::tick() {
         }
 
         while ((inserted < ipc) && (window.is_full() == false)) {
-#if (EXETYPE == DVI) || (EXETYPE == OUTORDER)
+#if (EXE_TYPE == DVI_EXE) || (EXE_TYPE == OUTORDER_EXE)
             if (dispatch_stalled == true) {
                 if (dispatch_gpic() == false) {
                     break;
@@ -405,6 +417,14 @@ void Core::tick() {
                 bubble_cnt -= 1;
                 inserted = 1;
             }
+#elif (EXE_TYPE == INORDER_EXE) && (ISA_TYPE == RISCV_ISA)
+            auto random_list_it = req_wait_list.begin();
+            while ((random_list_it != req_wait_list.end()) && (window.is_full() == false)) {
+                window.insert(*random_list_it);
+                random_list_it = req_wait_list.erase(random_list_it);
+            }
+            if (window.is_full() == true)
+                break;
 #endif
             if (bubble_cnt < 0) {
                 more_reqs = trace.get_gpic_request(bubble_cnt, req_opcode, req_dst, req_src1, req_src2, req_dim, req_value, req_addr, req_addr_starts, req_stride, req_type); //, req_vid, req_vid_dst);
@@ -436,7 +456,7 @@ void Core::tick() {
             if (bubble_cnt > 0) {
                 request = Request(id, Request::UnitID::CORE);
                 window.insert(request);
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
             } else if (req_type == Request::Type::FREE) {
                 window.add_free_instr(data_type);
                 bubble_cnt = -1;
@@ -460,14 +480,17 @@ void Core::tick() {
                             assert(req_dim < DC_reg);
                             VL_reg[req_dim] = req_value;
                             assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * gpic_core_num));
+                            VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
                         } else if (req_opcode.find("count") != string::npos) {
                             DC_reg = req_value;
+                            VC_reg = 1;
                             VL_reg[0] = gpic_core_num * LANES_PER_SA;
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
                             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
                         } else if (req_opcode.find("init") != string::npos) {
                             DC_reg = 1;
+                            VC_reg = 1;
                             VL_reg[0] = gpic_core_num * LANES_PER_SA;
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
@@ -555,6 +578,24 @@ void Core::tick() {
                             }
                         }
 
+#if ISA_TYPE == RISCV_ISA
+                        int idx = 0;
+                        assert(req_wait_list.size() == 0);
+                        for (int i = 0; i < VL_reg[3]; i++) {
+                            for (int j = 0; j < VL_reg[2]; j++) {
+                                for (int k = 0; k < VL_reg[1]; k++) {
+                                    long req_addr_start = req_addr_starts[idx];
+                                    long req_addr_end = req_addr_ends[idx];
+                                    std::vector<long> req_addr_starts_temp, req_addr_ends_temp;
+                                    req_addr_starts_temp.push_back(req_addr_start);
+                                    req_addr_ends_temp.push_back(req_addr_end);
+                                    request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts_temp, req_addr_ends_temp, data_type, req_stride[0], false, callback, id, Request::UnitID::CORE);
+                                    request.vid = idx;
+                                    dispatch_gpic();
+                                }
+                            }
+                        }
+#else
                         long stride_val = 0;
                         if (DC_reg > 3) {
                             assert(VL_reg[3] > 0);
@@ -579,13 +620,28 @@ void Core::tick() {
                         if (dispatch_gpic() == false) {
                             break;
                         }
+#endif
                     } else {
                         // it's a computational GPIC instruction
+#if ISA_TYPE == RISCV_ISA
+                        int idx = 0;
+                        assert(req_wait_list.size() == 0);
+                        for (int i = 0; i < VL_reg[3]; i++) {
+                            for (int j = 0; j < VL_reg[2]; j++) {
+                                for (int k = 0; k < VL_reg[1]; k++) {
+                                    request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
+                                    request.vid = idx;
+                                    dispatch_gpic();
+                                }
+                            }
+                        }
+#else
                         request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
 
                         if (dispatch_gpic() == false) {
                             break;
                         }
+#endif
                     }
                 }
             } else if (req_type == Request::Type::INITIALIZED) {
@@ -698,7 +754,7 @@ void Core::reset_state() {
 
     record_cycs = 0;
     record_insts = 0;
-#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+#if (EXE_TYPE == OUTORDER_EXE) || (EXE_TYPE == DVI_EXE)
     stalled_cycs = 0;
 #endif
 
@@ -715,20 +771,23 @@ void Core::reset_state() {
     req_dst = -1;
     req_src1 = -1;
     req_src2 = -1;
-#if (EXETYPE == OUTORDER) || (EXETYPE == DVI)
+#if (EXE_TYPE == OUTORDER_EXE) || (EXE_TYPE == DVI_EXE)
     dispatch_stalled = false;
 #endif
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
     free_pr = 256;
-#elif (EXETYPE == OUTORDER)
+#elif (EXE_TYPE == OUTORDER_EXE)
     free_pr = 64;
 #endif
     more_reqs = true;
     last = 0;
     req_addr_starts.clear();
     req_addr_ends.clear();
-
+#if ISA_TYPE == RISCV_ISA
+    req_wait_list.clear();
+#endif
     DC_reg = 1;
+    VC_reg = 1;
     VL_reg[0] = gpic_core_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
@@ -827,7 +886,7 @@ bool overlap(long a_s, long a_e, long b_s, long b_e) {
     return false;
 }
 
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
 void Window::add_free_instr(int data_type) {
     int location;
     if (head == 0) {
@@ -962,7 +1021,7 @@ bool Window::check_send(Request &req, int location) {
     if (req.type == Request::Type::GPIC) {
         if (out_of_order == false)
             return false;
-#if (EXETYPE == INORDER)
+#if (EXE_TYPE == INORDER_EXE)
         return false;
 #endif
         // Find if there is any unsent instruction
@@ -1163,14 +1222,14 @@ long Window::tick() {
 
         hint("Retired: %s\n", req_list.at(tail).c_str());
 
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
         // add physical registers to free list
         if (req_list.at(tail).free_reg != 0) {
             core->free_pr += req_list.at(tail).free_reg;
             assert(core->free_pr <= 256);
             hint("%ld registers freed\n", req_list.at(tail).free_reg);
         }
-#elif (EXETYPE == OUTORDER)
+#elif (EXE_TYPE == OUTORDER_EXE)
         // add physical registers to free list
         if (req_list.at(tail).dst != -1) {
             // allocated_pr += req_list.at(tail).data_type;
@@ -1219,7 +1278,7 @@ void Window::reset_state() {
     head = 0;
     tail = 0;
     last_id = 0;
-    // #if (EXETYPE == OUTORDER)
+    // #if (EXE_TYPE == OUTORDER_EXE)
     //     allocated_pr = 0;
     //     all_vr_allocated = false;
     // #endif
@@ -1383,7 +1442,7 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
                     req_type = Request::Type::INITIALIZED;
                     return true;
                 } else if (req_opcode.find("free") != string::npos) {
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
                     req_type = Request::Type::FREE;
                     return true;
 #else
@@ -1437,7 +1496,7 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
             }
         }
     }
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
     if (req_type != Request::Type::FREE) {
         bubble_cnt = std::stoul(get_remove_first_word(line));
     }
@@ -1466,7 +1525,7 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
             // it's a compute instruction
             hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, bubble_cnt);
         }
-#if (EXETYPE == DVI)
+#if (EXE_TYPE == DVI_EXE)
     } else if (req_type == Request::Type::FREE) {
         hint("get_gpic_request returned type: FREE, opcode: %s\n", req_opcode.c_str());
 #endif

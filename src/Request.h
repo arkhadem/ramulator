@@ -42,6 +42,7 @@ public:
         DC_FINISH,
         MAX
     } type;
+    int vid = -1;
     int sid = -1;
     int sid_dst = -1;
     long data_type = 0;
@@ -85,8 +86,8 @@ public:
     long depart = -1;
     function<void(Request &)> callback; // call back with more info
 
-    int min_vid = -1;
-    int max_vid = -1;
+    int min_eid = -1;
+    int max_eid = -1;
 
     bool *vector_mask;
 
@@ -211,7 +212,7 @@ public:
                 }
                 req_stream << std::dec << "), Stride(" << stride << ")"; //, VID(" << vid << ")";
                 if (sid != -1) {
-                    req_stream << ", SID(" << sid << "), min_vid(" << min_vid << "), max_vid(" << max_vid << ")";
+                    req_stream << ", SID(" << sid << "), min_eid(" << min_eid << "), max_eid(" << max_eid << ")";
                 }
                 req_stream << "]";
             } else {
@@ -222,7 +223,7 @@ public:
                 }
                 req_stream << ")";
                 if (sid != -1) {
-                    req_stream << ", SID(" << sid << "), min_vid(" << min_vid << "), max_vid(" << max_vid << ")";
+                    req_stream << ", SID(" << sid << "), min_eid(" << min_eid << "), max_eid(" << max_eid << ")";
                 }
                 req_stream << "]";
             }

@@ -295,10 +295,32 @@ void Cache::instrinsic_decoder(Request req) {
 
     if ((req.opcode.find("load") != string::npos) || (req.opcode.find("store") != string::npos)) {
 
+        int stride = stride_evaluator(req.stride, (req.opcode.find("load") != string::npos));
+
+#if ISA_TYPE == RISCV_ISA
+        assert(req.vid != -1);
+
+        gpic_vop_to_num_sop[req] = SA_PER_V;
+        req.stride = stride;
+        // For each SA of the vector
+        for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+            req.sid = vid_to_sid(req.vid, sid_offset);
+            req.min_eid = sid_offset * LANES_PER_SA;
+            req.max_eid = (req.min_eid + LANES_PER_SA) < VL_reg[0] ? (req.min_eid + LANES_PER_SA) : VL_reg[0];
+
+            if (SA_masked[req.sid]) {
+                // All vectors of this SRAM array are masked
+                hint("Request %s masked!\n", req.c_str());
+                gpic_vop_to_num_sop[req]--;
+                continue;
+            }
+
+            // Schedule the instruction
+            intrinsic_computer(req);
+        }
+#else
         std::vector<long> addr_starts = req.addr_starts;
         std::vector<long> addr_ends = req.addr_ends;
-
-        int stride = stride_evaluator(req.stride, (req.opcode.find("load") != string::npos));
 
         gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_SA) + 1;
         gpic_vop_to_num_sop[req] *= SA_PER_V;
@@ -313,13 +335,14 @@ void Cache::instrinsic_decoder(Request req) {
 
                 if (SA_masked[req.sid]) {
                     // All vectors of this SRAM array are masked
+                    hint("Request %s masked!\n", req.c_str());
                     gpic_vop_to_num_sop[req]--;
                     continue;
                 }
 
                 req.stride = stride;
-                req.min_vid = sid_offset * LANES_PER_SA;
-                req.max_vid = (req.min_vid + LANES_PER_SA) < VL_reg[0] ? (req.min_vid + LANES_PER_SA) : VL_reg[0];
+                req.min_eid = sid_offset * LANES_PER_SA;
+                req.max_eid = (req.min_eid + LANES_PER_SA) < VL_reg[0] ? (req.min_eid + LANES_PER_SA) : VL_reg[0];
 
                 // For each vector of the SA
                 int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
@@ -347,15 +370,35 @@ void Cache::instrinsic_decoder(Request req) {
                 // Schedule the instruction
                 intrinsic_computer(req);
             }
+        }
+#endif
+        assert(gpic_vop_to_num_sop[req] >= 0);
 
-            assert(gpic_vop_to_num_sop[req] >= 0);
-
-            if (gpic_vop_to_num_sop[req] == 0) {
-                hint("20- Calling back %s to core\n", req.c_str());
-                req.callback(req);
-            }
+        if (gpic_vop_to_num_sop[req] == 0) {
+            hint("20- Calling back %s to core\n", req.c_str());
+            req.callback(req);
         }
     } else {
+#if ISA_TYPE == RISCV_ISA
+        assert(req.vid != -1);
+
+        gpic_vop_to_num_sop[req] = SA_PER_V;
+
+        // For each SA of the vector
+        for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+            req.sid = vid_to_sid(req.vid, sid_offset);
+
+            if (SA_masked[req.sid]) {
+                // All vectors of this SRAM array are masked
+                hint("Request %s masked!\n", req.c_str());
+                gpic_vop_to_num_sop[req]--;
+                continue;
+            }
+
+            // Schedule the instruction
+            intrinsic_computer(req);
+        }
+#else
         gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_SA) + 1;
         gpic_vop_to_num_sop[req] *= SA_PER_V;
 
@@ -376,9 +419,11 @@ void Cache::instrinsic_decoder(Request req) {
                 intrinsic_computer(req);
             }
         }
+#endif
+        assert(gpic_vop_to_num_sop[req] >= 0);
 
         if (gpic_vop_to_num_sop[req] == 0) {
-            hint("21- Calling back %s to core\n", req.c_str());
+            hint("20- Calling back %s to core\n", req.c_str());
             req.callback(req);
         }
     }
@@ -1346,7 +1391,7 @@ void Cache::tick() {
                             continue;
                         }
                         long addr = req.addr_starts[idx];
-                        for (int i = req.min_vid; i < req.max_vid; i++) {
+                        for (int i = req.min_eid; i < req.max_eid; i++) {
                             if ((addr < req.addr_starts[idx]) || (addr > req.addr_ends[idx])) {
                                 printf("Error: (addr(0x%lx) < req.addr_starts[%d](0x%lx)) || (addr(0x%lx) > req.addr_ends[%d](0x%lx))", addr, i, req.addr_starts[idx], addr, i, req.addr_ends[idx]);
                                 exit(-1);

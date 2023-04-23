@@ -327,8 +327,8 @@ void Cache::instrinsic_decoder(Request req) {
                 req.addr_ends.clear();
                 req.sid = vid_to_sid(vid_base, sid_offset);
                 req.stride = stride;
-                req.min_vid = sid_offset * 256;
-                req.max_vid = (req.min_vid + 256) < VL_reg[0] ? (req.min_vid + 256) : VL_reg[0];
+                req.min_eid = sid_offset * 256;
+                req.max_eid = (req.min_eid + 256) < VL_reg[0] ? (req.min_eid + 256) : VL_reg[0];
 
                 // For each vector of the SA
                 int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
@@ -1265,7 +1265,7 @@ void Cache::tick() {
                         //     }
                         // } else {
                         long addr = req.addr_starts[idx];
-                        for (int i = req.min_vid; i < req.max_vid; i++) {
+                        for (int i = req.min_eid; i < req.max_eid; i++) {
                             if ((addr < req.addr_starts[idx]) || (addr >= req.addr_ends[idx])) {
                                 printf("Error: (addr(0x%lx) < req.addr_starts[%d](0x%lx)) || (addr(0x%lx) >= req.addr_ends[%d](0x%lx))", addr, i, req.addr_starts[idx], addr, i, req.addr_ends[idx]);
                                 exit(-1);
