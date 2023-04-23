@@ -1140,11 +1140,15 @@ void Window::insert(Request &req) {
     // addr_list.at(head) = req.addr;
 
     if (req.type != Request::Type::MAX) {
+#if ISA_TYPE != RISCV_ISA
         if (check_send(req, head)) {
             sent_list.at(head) = true;
         } else {
             sent_list.at(head) = false;
         }
+#else
+        sent_list.at(head) = false;
+#endif
     } else {
         sent_list.at(head) = true;
     }
