@@ -372,9 +372,9 @@ bool Core::dispatch_gpic() {
         window.insert(request);
 #else
     window.insert(request);
+#endif
+#endif
     return true;
-#endif
-#endif
 }
 
 bool hasEnding(std::string const &fullString, std::string const &ending) {
