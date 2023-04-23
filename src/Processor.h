@@ -14,22 +14,6 @@
 #include <string>
 #include <vector>
 
-#define INORDER_EXE 0
-#define OUTORDER_EXE 1
-#define DVI_EXE 2
-#define ORACLE_EXE 3
-
-#ifndef EXE_TYPE
-#define EXE_TYPE INORDER_EXE
-#endif
-
-#define RISCV_ISA 0
-#define LIME_ISA 1
-
-#ifndef ISA_TYPE
-#define ISA_TYPE RISCV_ISA
-#endif
-
 namespace ramulator {
 
 class Core;

@@ -190,7 +190,11 @@ protected:
     bool *VM_reg[4];
     long LS_reg[4] = {0, 0, 0, 0};
     long SS_reg[4] = {0, 0, 0, 0};
-    bool SA_masked[MAX_GPIC_SA_NUM];
+#if ISA_TYPE == RISCV_ISA
+    bool V_masked[MAX_GPIC_SA_NUM * 256];
+#else
+    bool SA_masked[MAX_GPIC_SA_NUM * 256];
+#endif
 
     int V_PER_SA = 1;
     int SA_PER_V = MAX_GPIC_SA_NUM;

@@ -45,11 +45,18 @@ Cache::Cache(int size, int assoc, int block_size,
     index_offset = calc_log2(block_size);
     tag_offset = calc_log2(block_num) + index_offset;
 
+    for (int lane = 0; lane < MAX_GPIC_SA_NUM * 256; lane++) {
+#if ISA_TYPE == RISCV_ISA
+        V_masked[lane] = false;
+#else
+        SA_masked[lane] = false;
+#endif
+    }
+
     for (int i = 0; i < gpic_core_num; i++) {
         last_gpic_instruction_compute_clk[i] = -1;
         last_gpic_instruction_computed[i] = false;
         last_gpic_instruction_sent[i] = false;
-        SA_masked[i] = false;
     }
 
     SA_PER_V = gpic_core_num;
@@ -300,38 +307,37 @@ void Cache::instrinsic_decoder(Request req) {
 #if ISA_TYPE == RISCV_ISA
         assert(req.vid != -1);
 
-        gpic_vop_to_num_sop[req] = SA_PER_V;
-        req.stride = stride;
-        long addr_start = req.addr;
-        long addr_end = req.addr_end;
+        if (V_masked[req.vid] == false) {
+            // This vector is masked
+            hint("Request %s masked!\n", req.c_str());
+            gpic_vop_to_num_sop[req] = 0;
+        } else {
+            gpic_vop_to_num_sop[req] = SA_PER_V;
+            req.stride = stride;
+            long addr_start = req.addr;
+            long addr_end = req.addr_end;
 
-        // For each SA of the vector
-        for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+            // For each SA of the vector
+            for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
 
-            if (SA_masked[req.sid]) {
-                // All vectors of this SRAM array are masked
-                hint("Request %s masked!\n", req.c_str());
-                gpic_vop_to_num_sop[req]--;
-                continue;
+                req.sid = vid_to_sid(req.vid, sid_offset);
+                req.min_eid = sid_offset * LANES_PER_SA;
+                req.max_eid = (req.min_eid + LANES_PER_SA) < VL_reg[0] ? (req.min_eid + LANES_PER_SA) : VL_reg[0];
+
+                req.addr = addr_start + (long)(std::ceil((float)(sid_offset * LANES_PER_SA * req.data_type * stride / 8)));
+                if (stride == 0)
+                    req.addr_end = min(((long)(std::ceil((float)(req.data_type / 8))) + req.addr - 1), addr_end);
+                else
+                    req.addr_end = min(((long)(std::ceil((float)(LANES_PER_SA * req.data_type * stride / 8))) + req.addr - 1), addr_end);
+
+                req.addr_starts.clear();
+                req.addr_starts.push_back(req.addr);
+                req.addr_ends.clear();
+                req.addr_ends.push_back(req.addr_end);
+
+                // Schedule the instruction
+                intrinsic_computer(req);
             }
-
-            req.sid = vid_to_sid(req.vid, sid_offset);
-            req.min_eid = sid_offset * LANES_PER_SA;
-            req.max_eid = (req.min_eid + LANES_PER_SA) < VL_reg[0] ? (req.min_eid + LANES_PER_SA) : VL_reg[0];
-
-            req.addr = addr_start + (long)(std::ceil((float)(sid_offset * LANES_PER_SA * req.data_type * stride / 8)));
-            if (stride == 0)
-                req.addr_end = min(((long)(std::ceil((float)(req.data_type / 8))) + req.addr - 1), addr_end);
-            else
-                req.addr_end = min(((long)(std::ceil((float)(LANES_PER_SA * req.data_type * stride / 8))) + req.addr - 1), addr_end);
-
-            req.addr_starts.clear();
-            req.addr_starts.push_back(req.addr);
-            req.addr_ends.clear();
-            req.addr_ends.push_back(req.addr_end);
-
-            // Schedule the instruction
-            intrinsic_computer(req);
         }
 #else
         std::vector<long> addr_starts = req.addr_starts;
@@ -397,21 +403,21 @@ void Cache::instrinsic_decoder(Request req) {
 #if ISA_TYPE == RISCV_ISA
         assert(req.vid != -1);
 
-        gpic_vop_to_num_sop[req] = SA_PER_V;
+        if (V_masked[req.vid] == false) {
+            // This vector is masked
+            hint("Request %s masked!\n", req.c_str());
+            gpic_vop_to_num_sop[req] = 0;
+        } else {
 
-        // For each SA of the vector
-        for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
-            req.sid = vid_to_sid(req.vid, sid_offset);
+            gpic_vop_to_num_sop[req] = SA_PER_V;
 
-            if (SA_masked[req.sid]) {
-                // All vectors of this SRAM array are masked
-                hint("Request %s masked!\n", req.c_str());
-                gpic_vop_to_num_sop[req]--;
-                continue;
+            // For each SA of the vector
+            for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+                req.sid = vid_to_sid(req.vid, sid_offset);
+
+                // Schedule the instruction
+                intrinsic_computer(req);
             }
-
-            // Schedule the instruction
-            intrinsic_computer(req);
         }
 #else
         gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_SA) + 1;
@@ -588,6 +594,11 @@ bool Cache::memory_controller(Request req) {
         }
         hint("DC_reg: %ld, LS_reg: [%ld, %ld, %ld, %ld], SS_reg: [%ld, %ld, %ld, %ld], VL_reg: [%ld, %ld, %ld, %ld], VC_reg: %ld, V_PER_SA: %d, SA_PER_V: %d\n", DC_reg, LS_reg[0], LS_reg[1], LS_reg[2], LS_reg[3], SS_reg[0], SS_reg[1], SS_reg[2], SS_reg[3], VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], VC_reg, V_PER_SA, SA_PER_V);
         // For each vector
+#if ISA_TYPE == RISCV_ISA
+        for (int vid = 0; vid < VC_reg; vid += 1) {
+            V_masked[vid] = vector_masked(vid);
+        }
+#else
         for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_SA) {
             // For each SA of the vector
             for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
@@ -612,6 +623,7 @@ bool Cache::memory_controller(Request req) {
                 SA_masked[sid] = SA_masked_temp;
             }
         }
+#endif
     } else {
 
         if (((((VC_reg * SA_PER_V) - 1) / V_PER_SA) + 1) > gpic_core_num) {
@@ -1659,6 +1671,14 @@ void Cache::reset_state() {
     }
     assert(gpic_incoming_req_queue.size() == 0);
 
+    for (int lane = 0; lane < MAX_GPIC_SA_NUM * 256; lane++) {
+#if ISA_TYPE == RISCV_ISA
+        V_masked[lane] = false;
+#else
+        SA_masked[lane] = false;
+#endif
+    }
+
     for (int sid = 0; sid < gpic_core_num; sid++) {
         GPIC_host_device_cycles[sid] = 0;
         GPIC_move_stall_cycles[sid] = 0;
@@ -1670,8 +1690,6 @@ void Cache::reset_state() {
         last_gpic_instruction_computed[sid] = false;
         last_gpic_instruction_sent[sid] = false;
         assert(gpic_op_to_mem_ops[sid].size() == 0);
-        SA_masked[sid] = false;
-
         for (int i = 0; i < gpic_compute_queue[sid].size(); i++) {
             printf("ERROR: %s remained in gpic compute queue %s\n", gpic_compute_queue[sid].at(0).second.c_str(), level_string.c_str());
         }
