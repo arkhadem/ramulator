@@ -525,6 +525,8 @@ void Core::tick() {
                         for (int j = 0; j < VL_reg[2]; j++) {
                             for (int i = 0; i < VL_reg[3]; i++) {
                                 request.vid = request.vid = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
+                                if ((k == VL_reg[1] - 1) && (j == VL_reg[2] - 1) && (i == VL_reg[3] - 1))
+                                    request.ready = false;
                                 dispatch_gpic();
                             }
                         }
@@ -606,6 +608,8 @@ void Core::tick() {
                                     req_addr_ends_temp.push_back(req_addr_end);
                                     request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts_temp, req_addr_ends_temp, data_type, req_stride[0], true, callback, id, Request::UnitID::CORE);
                                     request.ready = true;
+                                    if ((k == VL_reg[1] - 1) && (j == VL_reg[2] - 1) && (i == VL_reg[3] - 1))
+                                        request.ready = false;
                                     request.vid = idx;
                                     dispatch_gpic();
                                 }
@@ -647,6 +651,8 @@ void Core::tick() {
                             for (int j = 0; j < VL_reg[2]; j++) {
                                 for (int i = 0; i < VL_reg[3]; i++) {
                                     request.vid = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
+                                    if ((k == VL_reg[1] - 1) && (j == VL_reg[2] - 1) && (i == VL_reg[3] - 1))
+                                        request.ready = false;
                                     dispatch_gpic();
                                 }
                             }
