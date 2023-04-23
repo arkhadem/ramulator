@@ -520,14 +520,12 @@ void Core::tick() {
                     request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, -1, false, callback, id, Request::UnitID::CORE);
 
 #if ISA_TYPE == RISCV_ISA
-                    int idx = 0;
                     request.ready = true;
-                    for (int i = 0; i < VL_reg[3]; i++) {
+                    for (int k = 0; k < VL_reg[1]; k++) {
                         for (int j = 0; j < VL_reg[2]; j++) {
-                            for (int k = 0; k < VL_reg[1]; k++) {
-                                request.vid = idx;
+                            for (int i = 0; i < VL_reg[3]; i++) {
+                                request.vid = request.vid = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
                                 dispatch_gpic();
-                                idx++;
                             }
                         }
                     }
@@ -597,9 +595,10 @@ void Core::tick() {
 #if ISA_TYPE == RISCV_ISA
                         int idx = 0;
                         assert(req_wait_list.size() == 0);
-                        for (int i = 0; i < VL_reg[3]; i++) {
+                        for (int k = 0; k < VL_reg[1]; k++) {
                             for (int j = 0; j < VL_reg[2]; j++) {
-                                for (int k = 0; k < VL_reg[1]; k++) {
+                                for (int i = 0; i < VL_reg[3]; i++) {
+                                    idx = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
                                     long req_addr_start = req_addr_starts[idx];
                                     long req_addr_end = req_addr_ends[idx];
                                     std::vector<long> req_addr_starts_temp, req_addr_ends_temp;
@@ -609,7 +608,6 @@ void Core::tick() {
                                     request.ready = true;
                                     request.vid = idx;
                                     dispatch_gpic();
-                                    idx++;
                                 }
                             }
                         }
@@ -643,15 +641,13 @@ void Core::tick() {
                         // it's a computational GPIC instruction
                         request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
 #if ISA_TYPE == RISCV_ISA
-                        int idx = 0;
                         assert(req_wait_list.size() == 0);
                         request.ready = true;
-                        for (int i = 0; i < VL_reg[3]; i++) {
+                        for (int k = 0; k < VL_reg[1]; k++) {
                             for (int j = 0; j < VL_reg[2]; j++) {
-                                for (int k = 0; k < VL_reg[1]; k++) {
-                                    request.vid = idx;
+                                for (int i = 0; i < VL_reg[3]; i++) {
+                                    request.vid = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
                                     dispatch_gpic();
-                                    idx++;
                                 }
                             }
                         }
