@@ -1117,8 +1117,8 @@ bool Window::check_send(Request &req, int location) {
             if (type == Request::Type::WRITE) {
                 // Set complete and sent = true
                 hint("Load to store forwarding for %s\n", req.c_str());
-                req_list.at(head).ready = true;
-                sent_list.at(head) = true;
+                req_list.at(location).ready = true;
+                sent_list.at(location) = true;
                 return true;
             } else {
                 // It's a strided GPIC store
