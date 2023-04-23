@@ -521,6 +521,7 @@ void Core::tick() {
 
 #if ISA_TYPE == RISCV_ISA
                     int idx = 0;
+                    request.ready = true;
                     for (int i = 0; i < VL_reg[3]; i++) {
                         for (int j = 0; j < VL_reg[2]; j++) {
                             for (int k = 0; k < VL_reg[1]; k++) {
@@ -604,7 +605,8 @@ void Core::tick() {
                                     std::vector<long> req_addr_starts_temp, req_addr_ends_temp;
                                     req_addr_starts_temp.push_back(req_addr_start);
                                     req_addr_ends_temp.push_back(req_addr_end);
-                                    request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts_temp, req_addr_ends_temp, data_type, req_stride[0], false, callback, id, Request::UnitID::CORE);
+                                    request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts_temp, req_addr_ends_temp, data_type, req_stride[0], true, callback, id, Request::UnitID::CORE);
+                                    request.ready = true;
                                     request.vid = idx;
                                     dispatch_gpic();
                                     idx++;
@@ -639,13 +641,14 @@ void Core::tick() {
 #endif
                     } else {
                         // it's a computational GPIC instruction
+                        request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
 #if ISA_TYPE == RISCV_ISA
                         int idx = 0;
                         assert(req_wait_list.size() == 0);
+                        request.ready = true;
                         for (int i = 0; i < VL_reg[3]; i++) {
                             for (int j = 0; j < VL_reg[2]; j++) {
                                 for (int k = 0; k < VL_reg[1]; k++) {
-                                    request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
                                     request.vid = idx;
                                     dispatch_gpic();
                                     idx++;
@@ -653,8 +656,6 @@ void Core::tick() {
                             }
                         }
 #else
-                        request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
-
                         if (dispatch_gpic() == false) {
                             break;
                         }
