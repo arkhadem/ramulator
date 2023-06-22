@@ -9,7 +9,13 @@ OBJS := $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(SRCS))
 #   g++ 4.x due to an internal compiler error when processing lambda functions.
 CXX := clang++
 # CXX := g++-5
+UNAME_S := $(shell uname -s)
 CXXFLAGS := -O3 -std=c++11 -g -Wall
+ifeq ($(UNAME_S),Linux)
+	CXXFLAGS += -Wno-unused-lambda-capture -Wno-delete-non-virtual-dtor
+else ifeq ($(UNAME_S),Darwin)
+	CXXFLAGS += -Wno-unused-lambda-capture -Wno-delete-non-abstract-non-virtual-dtor
+endif
 
 .PHONY: all clean depend
 
@@ -25,7 +31,7 @@ depend: $(OBJDIR)/.depend
 $(OBJDIR)/.depend: $(SRCS)
 	@mkdir -p $(OBJDIR)
 	@rm -f $(OBJDIR)/.depend
-	@$(foreach SRC, $(SRCS), $(CXX) $(CXXFLAGS) -DRAMULATOR -MM -MT $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(SRC)) $(SRC) >> $(OBJDIR)/.depend ;)
+	@$(foreach SRC, $(SRCS), $(CXX) $(CXXFLAGS) $(CFLAGS) -DRAMULATOR -MM -MT $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(SRC)) $(SRC) >> $(OBJDIR)/.depend ;)
 
 ifneq ($(MAKECMDGOALS),clean)
 -include $(OBJDIR)/.depend
@@ -33,7 +39,10 @@ endif
 
 
 ramulator: $(MAIN) $(OBJS) $(SRCDIR)/*.h | depend
-	$(CXX) $(CXXFLAGS) -DRAMULATOR -o $@ $(MAIN) $(OBJS)
+	$(CXX) $(CXXFLAGS) $(CFLAGS) -DRAMULATOR -o $@ $(MAIN) $(OBJS)
+
+ramulator2: $(MAIN) $(OBJS) $(SRCDIR)/*.h | depend
+	$(CXX) $(CXXFLAGS) $(CFLAGS) -DRAMULATOR -o $@ $(MAIN) $(OBJS)
 
 libramulator.a: $(OBJS) $(OBJDIR)/Gem5Wrapper.o
 	libtool -static -o $@ $(OBJS) $(OBJDIR)/Gem5Wrapper.o
@@ -44,4 +53,4 @@ $(OBJDIR):
 	@mkdir -p $@
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
-	$(CXX) $(CXXFLAGS) -DRAMULATOR -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(CFLAGS) -DRAMULATOR -c -o $@ $<
