@@ -1,5 +1,5 @@
-SRCDIR := src
-OBJDIR := obj
+SRCDIR := $(shell pwd)/src
+OBJDIR := $(shell pwd)/obj
 MAIN := $(SRCDIR)/Main.cpp
 SRCS := $(filter-out $(MAIN) $(SRCDIR)/Gem5Wrapper.cpp, $(wildcard $(SRCDIR)/*.cpp))
 OBJS := $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(SRCS))
