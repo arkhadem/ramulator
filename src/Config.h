@@ -37,7 +37,7 @@
 #endif
 
 #ifndef LATENCY_FILE_NAME
-#define LATENCY_FILE_NAME "gpic_instrinsics_latency"
+#define LATENCY_FILE_NAME "gpic_intrinsics_latency"
 #endif
 
 // #define DEBUG

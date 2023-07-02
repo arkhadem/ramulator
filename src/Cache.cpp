@@ -189,6 +189,8 @@ void Cache::init_intrinsic_latency() {
     if (file.is_open() == false) {
         printf("Error: could not find gpic latency csv file!\nTried for address: %s\n", csv_path.c_str());
         exit(-1);
+    } else {
+        printf("Data file: %s\n", csv_path.c_str());
     }
 
     // reading and ignoring header file
