@@ -93,7 +93,7 @@ public:
     int id = 0;
     core_type_t core_type;
     int ipc = 0;
-    int gpic_core_num = 0;
+    int gpic_SA_num = 0;
     bool out_of_order = true;
     function<bool(Request)> ls_send;
     function<bool(Request)> gpic_send;

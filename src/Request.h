@@ -43,8 +43,8 @@ public:
         MAX
     } type;
     int vid = -1;
-    int sid = -1;
-    int sid_dst = -1;
+    int CB_id = -1;
+    int CB_id_dst = -1;
     long data_type = 0;
     std::vector<long> addr_starts;
     std::vector<long> addr_ends;
@@ -159,7 +159,7 @@ public:
 
     friend bool operator==(const Request &req1, const Request &req2) {
         if ((req1.coreid == req2.coreid) && (req1.unitid == req2.unitid) && (req1.reqid == req2.reqid) && //(req1.vid == req2.vid) && (req1.vid_dst == req2.vid_dst) &&
-            (req1.sid == req2.sid) && (req1.sid_dst == req2.sid_dst)) {
+            (req1.CB_id == req2.CB_id) && (req1.CB_id_dst == req2.CB_id_dst)) {
             assert(req1.data_type == req2.data_type);
             assert(req1.type == req2.type);
             assert(req1.opcode == req2.opcode);
@@ -211,8 +211,8 @@ public:
                     req_stream << "...";
                 }
                 req_stream << std::dec << "), Stride(" << stride << ")"; //, VID(" << vid << ")";
-                if (sid != -1) {
-                    req_stream << ", SID(" << sid << "), min_eid(" << min_eid << "), max_eid(" << max_eid << ")";
+                if (CB_id != -1) {
+                    req_stream << ", SID(" << CB_id << "), min_eid(" << min_eid << "), max_eid(" << max_eid << ")";
                 }
                 req_stream << "]";
             } else {
@@ -222,8 +222,8 @@ public:
                     req_stream << "), dst(" << dst << "), src1(" << src1 << "), src2(" << src2;
                 }
                 req_stream << ")";
-                if (sid != -1) {
-                    req_stream << ", SID(" << sid << "), min_eid(" << min_eid << "), max_eid(" << max_eid << ")";
+                if (CB_id != -1) {
+                    req_stream << ", SID(" << CB_id << "), min_eid(" << min_eid << "), max_eid(" << max_eid << ")";
                 }
                 req_stream << "]";
             }

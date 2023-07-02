@@ -45,7 +45,7 @@ int ramulator::l3_assoc = 1 << 4;
 int ramulator::l3_blocksz = 1 << 6;
 int ramulator::mshr_per_bank = 64;
 float ramulator::l3_access_energy = 167.581634688;
-int ramulator::l3_gpic_core_num = 32;
+int ramulator::l3_gpic_SA_num = 32;
 
 void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::SILVER].l1_cache_config.size = 1 << 16;
@@ -90,9 +90,9 @@ void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::GOLD].ipc = 3;
     ramulator::core_configs[core_type_t::PRIME].ipc = 3;
 
-    ramulator::core_configs[core_type_t::SILVER].gpic_core_num = 8;
-    ramulator::core_configs[core_type_t::GOLD].gpic_core_num = 16;
-    ramulator::core_configs[core_type_t::PRIME].gpic_core_num = 32;
+    ramulator::core_configs[core_type_t::SILVER].gpic_SA_num = 8;
+    ramulator::core_configs[core_type_t::GOLD].gpic_SA_num = 16;
+    ramulator::core_configs[core_type_t::PRIME].gpic_SA_num = 32;
 
     ramulator::core_configs[core_type_t::SILVER].out_of_order = false;
     ramulator::core_configs[core_type_t::GOLD].out_of_order = true;
@@ -375,7 +375,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     declare_configuration(configs);
 
     dc_cachesys = std::shared_ptr<CacheSystem>(new CacheSystem(configs, send_memory));
-    dc_llc = new ramulator::Cache(ramulator::l3_size, ramulator::l3_assoc, ramulator::l3_blocksz, ramulator::mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, dc_cachesys, l3_gpic_core_num);
+    dc_llc = new ramulator::Cache(ramulator::l3_size, ramulator::l3_assoc, ramulator::l3_blocksz, ramulator::mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, dc_cachesys, l3_gpic_SA_num);
 
     dc_l2 = new ramulator::Cache(
         core_configs[ramulator::core_type_t::PRIME].l2_cache_config.size,
@@ -385,7 +385,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         core_configs[ramulator::core_type_t::PRIME].l2_cache_config.access_energy,
         Cache::Level::L2,
         dc_cachesys,
-        core_configs[ramulator::core_type_t::PRIME].gpic_core_num,
+        core_configs[ramulator::core_type_t::PRIME].gpic_SA_num,
         0);
     dc_l2->concatlower(dc_llc);
 

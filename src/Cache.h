@@ -33,7 +33,7 @@ extern int l3_assoc;
 extern int l3_blocksz;
 extern int mshr_per_bank;
 extern float l3_access_energy;
-extern int l3_gpic_core_num;
+extern int l3_gpic_SA_num;
 
 class Cache {
 protected:
@@ -89,7 +89,7 @@ public:
     };
 
     Cache(int size, int assoc, int block_size, int mshr_entry_num, float access_energy,
-          Level level, std::shared_ptr<CacheSystem> cachesys, int gpic_core_num, int core_id = -1);
+          Level level, std::shared_ptr<CacheSystem> cachesys, int gpic_CB_num, int core_id = -1);
 
     void tick();
     void reset_state();
@@ -158,7 +158,7 @@ protected:
     unsigned int mshr_entry_num;
     float access_energy;
     long last_id = 0;
-    int gpic_core_num;
+    int gpic_CB_num;
     bool receive_locked = false;
     bool crossbar_locked = false;
 
@@ -191,13 +191,13 @@ protected:
     long LS_reg[4] = {0, 0, 0, 0};
     long SS_reg[4] = {0, 0, 0, 0};
 #if ISA_TYPE == RISCV_ISA
-    bool V_masked[MAX_GPIC_SA_NUM * 256];
+    bool V_masked[MAX_GPIC_SA_NUM * LANES_PER_SA];
 #else
-    bool SA_masked[MAX_GPIC_SA_NUM * 256];
+    bool CB_masked[MAX_GPIC_SA_NUM * LANES_PER_SA];
 #endif
 
-    int V_PER_SA = 1;
-    int SA_PER_V = MAX_GPIC_SA_NUM;
+    int V_PER_CB = 1;
+    int CB_PER_V = MAX_GPIC_SA_NUM;
 
     int calc_log2(int val) {
         int n = 0;

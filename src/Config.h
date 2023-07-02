@@ -22,14 +22,22 @@
 #define LIME_ISA 1
 
 #ifndef ISA_TYPE
-#define ISA_TYPE RISCV_ISA
+#define ISA_TYPE LIME_ISA
 #endif
 
 #define MAX_CORE_ID 16
 #define MAX_GPIC_SA_NUM 64
 
+#ifndef LANES_PER_CB
+#define LANES_PER_CB 1024
+#endif
+
 #ifndef LANES_PER_SA
-#define LANES_PER_SA 1024
+#define LANES_PER_SA 256
+#endif
+
+#ifndef LATENCY_FILE_NAME
+#define LATENCY_FILE_NAME "gpic_instrinsics_latency"
 #endif
 
 // #define DEBUG
@@ -59,7 +67,7 @@ struct cache_config_t {
 
 struct core_config_t {
     int ipc;
-    int gpic_core_num;
+    int gpic_SA_num;
     bool out_of_order;
     cache_config_t l1_cache_config;
     cache_config_t l2_cache_config;

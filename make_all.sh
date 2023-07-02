@@ -18,8 +18,6 @@ make clean
 make -j7 CFLAGS='-DEXE_TYPE=ORACLE_EXE -DISA_TYPE=LIME_ISA'
 mv ramulator ramulator_ora
 
-
-
 make clean
 make -j7 CFLAGS='-DDEBUG -DEXE_TYPE=INORDER_EXE -DISA_TYPE=LIME_ISA'
 mv ramulator ramulator_ino_verbose

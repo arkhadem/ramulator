@@ -19,8 +19,8 @@ namespace ramulator {
 
 Cache::Cache(int size, int assoc, int block_size,
              int mshr_entry_num, float access_energy, Level level,
-             std::shared_ptr<CacheSystem> cachesys, int gpic_core_num, int core_id)
-    : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), gpic_core_num(gpic_core_num) {
+             std::shared_ptr<CacheSystem> cachesys, int gpic_CB_num, int core_id)
+    : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), gpic_CB_num(gpic_CB_num) {
 
     debug("level %d size %d assoc %d block_size %d\n",
           int(level), size, assoc, block_size);
@@ -48,20 +48,20 @@ Cache::Cache(int size, int assoc, int block_size,
     index_offset = calc_log2(block_size);
     tag_offset = calc_log2(block_num) + index_offset;
 
-    for (int i = 0; i < gpic_core_num; i++) {
+    for (int i = 0; i < gpic_CB_num; i++) {
         last_gpic_instruction_compute_clk[i] = -1;
         last_gpic_instruction_computed[i] = false;
         last_gpic_instruction_sent[i] = false;
     }
 
-    SA_PER_V = gpic_core_num;
+    CB_PER_V = gpic_CB_num;
     DC_reg = 1;
-    VL_reg[0] = gpic_core_num * 256;
+    VL_reg[0] = gpic_CB_num * 256;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = vector<bool>(gpic_core_num * 256);
+    VM_reg[0] = vector<bool>(gpic_CB_num * 256);
     fill(VM_reg[0].begin(), VM_reg[0].end(), true);
     VM_reg[1] = vector<bool>(1);
     VM_reg[1][0] = true;
@@ -131,11 +131,11 @@ Cache::Cache(int size, int assoc, int block_size,
         .desc("total cycles at which cache GPIC waiting for mem requests")
         .precision(0);
 
-    GPIC_host_device_cycles = new ScalarStat[gpic_core_num];
-    GPIC_move_stall_cycles = new ScalarStat[gpic_core_num];
-    GPIC_compute_cycles = new ScalarStat[gpic_core_num];
-    GPIC_memory_cycles = new ScalarStat[gpic_core_num];
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    GPIC_host_device_cycles = new ScalarStat[gpic_CB_num];
+    GPIC_move_stall_cycles = new ScalarStat[gpic_CB_num];
+    GPIC_compute_cycles = new ScalarStat[gpic_CB_num];
+    GPIC_memory_cycles = new ScalarStat[gpic_CB_num];
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         GPIC_host_device_cycles[sid].name(level_string + string("_GPIC_host_device_cycles[") + to_string(sid) + string("]")).desc("cache GPIC instruction queue is empty").precision(0);
         GPIC_move_stall_cycles[sid].name(level_string + string("_GPIC_move_stall_cycles[") + to_string(sid) + string("]")).desc("cache GPIC is stalled for move instruction").precision(0);
         GPIC_compute_cycles[sid].name(level_string + string("_GPIC_compute_cycles[") + to_string(sid) + string("]")).desc("cache GPIC doing computation or W/R").precision(0);
@@ -152,11 +152,11 @@ Cache::Cache(int size, int assoc, int block_size,
         .desc("total cache GPIC compute energy [read/write part] in pJ")
         .precision(0);
 
-    GPIC_compute_energy = new ScalarStat[gpic_core_num];
-    GPIC_compute_comp_energy = new ScalarStat[gpic_core_num];
-    GPIC_compute_rdwr_energy = new ScalarStat[gpic_core_num];
+    GPIC_compute_energy = new ScalarStat[gpic_CB_num];
+    GPIC_compute_comp_energy = new ScalarStat[gpic_CB_num];
+    GPIC_compute_rdwr_energy = new ScalarStat[gpic_CB_num];
 
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         GPIC_compute_energy[sid].name(level_string + string("_GPIC_compute_energy[") + to_string(sid) + string("]")).desc("cache GPIC compute energy in pJ").precision(0);
         GPIC_compute_comp_energy[sid].name(level_string + string("_GPIC_compute_comp_energy[") + to_string(sid) + string("]")).desc("cache GPIC compute energy [compute part] in pJ").precision(0);
         GPIC_compute_rdwr_energy[sid].name(level_string + string("_GPIC_compute_rdwr_energy[") + to_string(sid) + string("]")).desc("cache GPIC compute energy [read/write part] in pJ").precision(0);
@@ -215,24 +215,24 @@ void Cache::init_intrinsic_latency() {
 
 int Cache::vid_to_sid(int vid, int base = 0) {
     if (VL_reg[0] <= 256) {
-        return vid / V_PER_SA + base;
+        return vid / V_PER_CB + base;
     } else {
-        return vid * SA_PER_V + base;
+        return vid * CB_PER_V + base;
     }
 }
 
 bool Cache::check_full_queue(Request req) {
     // if (req.vid == -1) {
     // assert(req.opcode.find("move") == string::npos);
-    for (int vid = 0; vid < VC_reg; vid += V_PER_SA) {
-        for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+    for (int vid = 0; vid < VC_reg; vid += V_PER_CB) {
+        for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
             if (gpic_instruction_queue[vid_to_sid(vid, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
                 return false;
             }
         }
     }
     // } else {
-    //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+    //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
     //         if (gpic_instruction_queue[vid_to_sid(req.vid, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
     //             return false;
     //         }
@@ -240,7 +240,7 @@ bool Cache::check_full_queue(Request req) {
     // }
 
     // if (req.opcode.find("move") != string::npos) {
-    //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+    //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
     //         if (gpic_instruction_queue[vid_to_sid(req.vid_dst, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
     //             return false;
     //         }
@@ -290,12 +290,12 @@ void Cache::instrinsic_decoder(Request req) {
     // if (req.opcode.find("move") != string::npos) {
     //     // move cannot have vid = -1
     //     assert(req.vid >= 0);
-    //     gpic_vop_to_num_sop[req] = SA_PER_V;
-    //     if ((req.vid / V_PER_SA) != (req.vid_dst / V_PER_SA)) {
+    //     gpic_vop_to_num_sop[req] = CB_PER_V;
+    //     if ((req.vid / V_PER_CB) != (req.vid_dst / V_PER_CB)) {
     //         gpic_vop_to_num_sop[req] *= 2;
     //     }
     //     // For each SA of the vector
-    //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+    //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
     //         req.sid = vid_to_sid(req.vid, sid_offset);
     //         req.sid_dst = vid_to_sid(req.vid_dst, sid_offset);
     //         hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
@@ -316,13 +316,13 @@ void Cache::instrinsic_decoder(Request req) {
         int stride = stride_evaluator(req.stride, (req.opcode.find("load") != string::npos));
 
         // if (req.vid == -1) {
-        gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_SA) + 1;
-        gpic_vop_to_num_sop[req] *= SA_PER_V;
+        gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_CB) + 1;
+        gpic_vop_to_num_sop[req] *= CB_PER_V;
 
         // For each vector
-        for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_SA) {
+        for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_CB) {
             // For each SA of the vector
-            for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+            for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
                 req.addr_starts.clear();
                 req.addr_ends.clear();
                 req.sid = vid_to_sid(vid_base, sid_offset);
@@ -331,7 +331,7 @@ void Cache::instrinsic_decoder(Request req) {
                 req.max_eid = (req.min_eid + 256) < VL_reg[0] ? (req.min_eid + 256) : VL_reg[0];
 
                 // For each vector of the SA
-                int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
+                int remaining_vectors = (V_PER_CB < (VC_reg - vid_base)) ? (V_PER_CB) : (VC_reg - vid_base);
                 for (int vid_offset = 0; vid_offset < remaining_vectors; vid_offset++) {
                     // VID shows which address pair should be used
                     int vid = vid_base + vid_offset;
@@ -378,10 +378,10 @@ void Cache::instrinsic_decoder(Request req) {
         }
         // } else {
         //     assert((addr_starts.size() == 1) && (addr_ends.size() == 1));
-        //     gpic_vop_to_num_sop[req] = SA_PER_V;
+        //     gpic_vop_to_num_sop[req] = CB_PER_V;
 
         //     // For each SA of the vector
-        //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+        //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
         //         req.sid = vid_to_sid(req.vid, sid_offset);
 
         //         if ((req.opcode.find("load1") == string::npos) && (req.opcode.find("store1") == string::npos)) {
@@ -402,18 +402,18 @@ void Cache::instrinsic_decoder(Request req) {
         // }
     } else {
         // if (req.vid == -1) {
-        gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_SA) + 1;
-        gpic_vop_to_num_sop[req] *= SA_PER_V;
+        gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_CB) + 1;
+        gpic_vop_to_num_sop[req] *= CB_PER_V;
 
         // For each vector
-        for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_SA) {
+        for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_CB) {
             // For each SA of the vector
-            for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+            for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
                 req.sid = vid_to_sid(vid_base, sid_offset);
 
                 // For each vector of the SA
                 bool SA_mased = true;
-                int remaining_vectors = (V_PER_SA < (VC_reg - vid_base)) ? (V_PER_SA) : (VC_reg - vid_base);
+                int remaining_vectors = (V_PER_CB < (VC_reg - vid_base)) ? (V_PER_CB) : (VC_reg - vid_base);
                 for (int vid_offset = 0; vid_offset < remaining_vectors; vid_offset++) {
                     // VID shows which address pair should be used
                     int vid = vid_base + vid_offset;
@@ -444,9 +444,9 @@ void Cache::instrinsic_decoder(Request req) {
             req.callback(req);
         }
         // } else {
-        //     gpic_vop_to_num_sop[req] = SA_PER_V;
+        //     gpic_vop_to_num_sop[req] = CB_PER_V;
         //     // For each SA of the vector
-        //     for (int sid_offset = 0; sid_offset < SA_PER_V; sid_offset++) {
+        //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
         //         req.sid = vid_to_sid(req.vid, sid_offset);
         //         // Schedule the instruction
         //         hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
@@ -499,8 +499,8 @@ bool Cache::memory_controller(Request req) {
             if (req.opcode.find("length") != string::npos) {
                 assert(req.dim < DC_reg);
                 VL_reg[req.dim] = req.value;
-                if (VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3] > (256 * gpic_core_num)) {
-                    printf("Error: VL_reg[0](%ld) * VL_reg[1](%ld) * VL_reg[2](%ld) * VL_reg[3](%ld) > (256 * gpic_core_num(%d))", VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], gpic_core_num);
+                if (VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3] > (256 * gpic_CB_num)) {
+                    printf("Error: VL_reg[0](%ld) * VL_reg[1](%ld) * VL_reg[2](%ld) * VL_reg[3](%ld) > (256 * gpic_CB_num(%d))", VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], gpic_CB_num);
                     exit(-1);
                 }
                 VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
@@ -509,11 +509,11 @@ bool Cache::memory_controller(Request req) {
                 fill(VM_reg[req.dim].begin(), VM_reg[req.dim].end(), true);
                 if (req.dim == 0) {
                     if (req.value <= 256) {
-                        V_PER_SA = (255 / req.value) + 1;
-                        SA_PER_V = 1;
+                        V_PER_CB = (255 / req.value) + 1;
+                        CB_PER_V = 1;
                     } else {
-                        SA_PER_V = ((req.value - 1) / 256) + 1;
-                        V_PER_SA = 1;
+                        CB_PER_V = ((req.value - 1) / 256) + 1;
+                        V_PER_CB = 1;
                     }
                 }
             } else if (req.opcode.find("count") != string::npos) {
@@ -544,11 +544,11 @@ bool Cache::memory_controller(Request req) {
         } else {
             assert(false);
         }
-        hint("DC_reg: %ld, LS_reg: [%ld, %ld, %ld, %ld], SS_reg: [%ld, %ld, %ld, %ld], VL_reg: [%ld, %ld, %ld, %ld], VC_reg: %ld, V_PER_SA: %d, SA_PER_V: %d\n", DC_reg, LS_reg[0], LS_reg[1], LS_reg[2], LS_reg[3], SS_reg[0], SS_reg[1], SS_reg[2], SS_reg[3], VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], VC_reg, V_PER_SA, SA_PER_V);
+        hint("DC_reg: %ld, LS_reg: [%ld, %ld, %ld, %ld], SS_reg: [%ld, %ld, %ld, %ld], VL_reg: [%ld, %ld, %ld, %ld], VC_reg: %ld, V_PER_CB: %d, CB_PER_V: %d\n", DC_reg, LS_reg[0], LS_reg[1], LS_reg[2], LS_reg[3], SS_reg[0], SS_reg[1], SS_reg[2], SS_reg[3], VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], VC_reg, V_PER_CB, CB_PER_V);
     } else {
 
-        if (((((VC_reg * SA_PER_V) + 1) / V_PER_SA) - 1) > gpic_core_num) {
-            printf("Error: ((((VC_reg(%ld) * SA_PER_V(%d)) + 1) / V_PER_SA(%d)) - 1) (%ld) > gpic_core_num(%d)\n", VC_reg, SA_PER_V, V_PER_SA, ((((VC_reg * SA_PER_V) + 1) / V_PER_SA) - 1), gpic_core_num);
+        if (((((VC_reg * CB_PER_V) + 1) / V_PER_CB) - 1) > gpic_CB_num) {
+            printf("Error: ((((VC_reg(%ld) * CB_PER_V(%d)) + 1) / V_PER_CB(%d)) - 1) (%ld) > gpic_CB_num(%d)\n", VC_reg, CB_PER_V, V_PER_CB, ((((VC_reg * CB_PER_V) + 1) / V_PER_CB) - 1), gpic_CB_num);
             exit(-1);
         }
 
@@ -1063,7 +1063,7 @@ void Cache::callback(Request &req) {
     }
 
     // Remove corresponding GPIC instructions
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
 
         int hit = 0;
 
@@ -1178,7 +1178,7 @@ void Cache::tick() {
     }
 
     // Instruction received by cache, sent to GPIC core queue
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         while ((gpic_instruction_queue[sid].size() > 0) && (cachesys->clk >= gpic_instruction_queue[sid][0].first)) {
             Request req = gpic_instruction_queue[sid][0].second;
             long compute_delay, access_delay, bitlines;
@@ -1214,7 +1214,7 @@ void Cache::tick() {
     // Instruction at the head of the GPIC queue is computed
     // If it's a store or load it is unpacked
     // Otherwise, it is called back
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
 
         // Check if there is any instruction ready for completion
         if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == false)) {
@@ -1304,7 +1304,7 @@ void Cache::tick() {
                         last_gpic_instruction_sent[sid] = false;
                     } else {
                         // send the first address
-                        for (int mem_idx = 0; mem_idx < (mshr_entry_num / gpic_core_num); mem_idx++) {
+                        for (int mem_idx = 0; mem_idx < (mshr_entry_num / gpic_CB_num); mem_idx++) {
                             if (mem_idx >= gpic_op_to_mem_ops[sid][req].size())
                                 break;
                             hint("15- %s sending %s to %s\n", level_string.c_str(), gpic_op_to_mem_ops[sid][req][mem_idx].first.c_str(), level_string.c_str());
@@ -1331,7 +1331,7 @@ void Cache::tick() {
     }
 
     // Instruction at the head of the GPIC queue gets ready for compute
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         // Check if there is any instructions ready to be computed
         if (last_gpic_instruction_computed[sid] == false) {
 
@@ -1394,7 +1394,7 @@ void Cache::tick() {
         }
     }
 
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         if ((last_gpic_instruction_computed[sid] == false) && (last_gpic_instruction_sent[sid] == false)) {
 
             if (gpic_compute_queue[sid].size() == 0) {
@@ -1438,7 +1438,7 @@ bool Cache::finished() {
     if (gpic_random_to_mem_ops.size() != 0)
         return false;
 
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         if (gpic_op_to_mem_ops[sid].size() != 0)
             return false;
 
@@ -1476,7 +1476,7 @@ void Cache::reset_state() {
     GPIC_compute_comp_total_energy = 0;
     GPIC_compute_rdwr_total_energy = 0;
     assert(gpic_random_to_mem_ops.size() == 0);
-    for (int sid = 0; sid < gpic_core_num; sid++) {
+    for (int sid = 0; sid < gpic_CB_num; sid++) {
         GPIC_host_device_cycles[sid] = 0;
         GPIC_move_stall_cycles[sid] = 0;
         GPIC_compute_cycles[sid] = 0;
@@ -1509,14 +1509,14 @@ void Cache::reset_state() {
     assert(retry_list.size() == 0);
     assert(self_retry_list.size() == 0);
 
-    SA_PER_V = gpic_core_num;
+    CB_PER_V = gpic_CB_num;
     DC_reg = 1;
-    VL_reg[0] = gpic_core_num * 256;
+    VL_reg[0] = gpic_CB_num * 256;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = vector<bool>(gpic_core_num * 256);
+    VM_reg[0] = vector<bool>(gpic_CB_num * 256);
     fill(VM_reg[0].begin(), VM_reg[0].end(), true);
     VM_reg[1] = vector<bool>(1);
     VM_reg[1][0] = true;

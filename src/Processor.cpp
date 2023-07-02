@@ -15,8 +15,15 @@ Processor::Processor(const Config &configs,
                      vector<const char *> trace_list,
                      function<bool(Request)> send_memory,
                      MemoryBase &memory)
-    : ipcs(configs.get_core_num(), -1), early_exit(configs.is_early_exit()), no_core_caches(!configs.has_core_caches()), no_shared_cache(!configs.has_l3_cache()), cachesys(new CacheSystem(configs, send_memory)),
-      llc(l3_size, l3_assoc, l3_blocksz, mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, cachesys, l3_gpic_core_num) {
+    : ipcs(configs.get_core_num(), -1),
+      early_exit(configs.is_early_exit()),
+      no_core_caches(!configs.has_core_caches()),
+      no_shared_cache(!configs.has_l3_cache()),
+      cachesys(new CacheSystem(configs, send_memory)),
+      llc(l3_size, l3_assoc, l3_blocksz,
+          mshr_per_bank * configs.get_core_num(),
+          l3_access_energy, Cache::Level::L3,
+          cachesys, l3_gpic_SA_num) {
 
     assert(cachesys != nullptr);
     int tracenum = trace_list.size();
@@ -196,7 +203,15 @@ void Processor::reset_stats() {
 Core::Core(const Config &configs, int coreid, core_type_t core_type,
            const std::vector<const char *> &trace_fnames, function<bool(Request)> send_next,
            Cache *llc, std::shared_ptr<CacheSystem> cachesys, MemoryBase &memory)
-    : id(coreid), core_type(core_type), ipc(core_configs[core_type].ipc), gpic_core_num(core_configs[core_type].gpic_core_num), out_of_order(core_configs[core_type].out_of_order), no_core_caches(!configs.has_core_caches()), no_shared_cache(!configs.has_l3_cache()), gpic_mode(configs.is_gpic()), llc(llc), trace(trace_fnames), window(this, core_configs[core_type].out_of_order, core_configs[core_type].ipc), request(coreid, Request::UnitID::CORE), memory(memory) {
+    : id(coreid), core_type(core_type), ipc(core_configs[core_type].ipc),
+      gpic_SA_num(core_configs[core_type].gpic_SA_num),
+      out_of_order(core_configs[core_type].out_of_order),
+      no_core_caches(!configs.has_core_caches()),
+      no_shared_cache(!configs.has_l3_cache()),
+      gpic_mode(configs.is_gpic()),
+      llc(llc), trace(trace_fnames),
+      window(this, core_configs[core_type].out_of_order, core_configs[core_type].ipc),
+      request(coreid, Request::UnitID::CORE), memory(memory) {
 
     printf("core type: %d, ipc: %d\n", core_type, ipc);
 
@@ -222,7 +237,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
             core_configs[core_type].l2_cache_config.access_energy,
             Cache::Level::L2,
             cachesys,
-            core_configs[core_type].gpic_core_num,
+            core_configs[core_type].gpic_SA_num,
             id));
         // L1 caches[1]
         caches.emplace_back(new Cache(
@@ -233,7 +248,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
             core_configs[core_type].l1_cache_config.access_energy,
             Cache::Level::L1,
             cachesys,
-            core_configs[core_type].gpic_core_num,
+            core_configs[core_type].gpic_SA_num,
             id));
         if (llc != nullptr) {
             caches[0]->concatlower(llc);
@@ -248,7 +263,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
 #endif
             DC_reg = 1;
             VC_reg = 1;
-            VL_reg[0] = gpic_core_num * LANES_PER_SA;
+            VL_reg[0] = gpic_SA_num * LANES_PER_SA;
             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
@@ -481,19 +496,19 @@ void Core::tick() {
                         if (req_opcode.find("length") != string::npos) {
                             assert(req_dim < DC_reg);
                             VL_reg[req_dim] = req_value;
-                            assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * gpic_core_num));
+                            assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * gpic_SA_num));
                             VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
                         } else if (req_opcode.find("count") != string::npos) {
                             DC_reg = req_value;
                             VC_reg = 1;
-                            VL_reg[0] = gpic_core_num * LANES_PER_SA;
+                            VL_reg[0] = gpic_SA_num * LANES_PER_SA;
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
                             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
                         } else if (req_opcode.find("init") != string::npos) {
                             DC_reg = 1;
                             VC_reg = 1;
-                            VL_reg[0] = gpic_core_num * LANES_PER_SA;
+                            VL_reg[0] = gpic_SA_num * LANES_PER_SA;
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
                             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
@@ -507,7 +522,6 @@ void Core::tick() {
                     }
                     assert(dispatch_gpic());
                 } else if (req_opcode.find("_dict_") != string::npos) {
-
                     long address_length = (long)(std::ceil((float)((data_type * 256) / 8)));
                     long req_addr_start = req_addr;
                     long req_addr_end = req_addr + (address_length - 1);
@@ -808,7 +822,7 @@ void Core::reset_state() {
 #endif
     DC_reg = 1;
     VC_reg = 1;
-    VL_reg[0] = gpic_core_num * LANES_PER_SA;
+    VL_reg[0] = gpic_SA_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
