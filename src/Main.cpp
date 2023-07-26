@@ -308,11 +308,13 @@ void dc_blocks_clock(int block) {
             hint("Block [%d]: DC_Start removed (%s)\n", block, next_req.c_str());
             dc_block_tosend_next[block] += 1;
             dc_block_tosend_remained[block] -= 1;
+            op_trace << dc_cachesys->clk << " " << block << " S " << next_req.reqid << endl;
         } else if (next_req.type == Request::Type::DC_FINISH) {
             if (dc_block_sent_requests[block].size() == 0) {
                 hint("Block [%d]: DC_Finish removed (%s)\n", block, next_req.c_str());
                 dc_block_tosend_next[block] += 1;
                 dc_block_tosend_remained[block] -= 1;
+                op_trace << dc_cachesys->clk << " " << block << " F " << next_req.reqid << endl;
             } else {
                 hint("Block [%d]: DC_Finish stalled (%s)\n", block, next_req.c_str());
                 break;
