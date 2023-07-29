@@ -33,8 +33,6 @@
 #include "WideIO.h"
 #include "WideIO2.h"
 
-#define MAX_DC_BLOCKS 256
-
 using namespace std;
 using namespace ramulator;
 
@@ -294,55 +292,92 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
 ramulator::Cache *dc_llc;
 ramulator::Cache *dc_l2;
 std::shared_ptr<CacheSystem> dc_cachesys;
-vector<Request> dc_block_tosend_requests[MAX_DC_BLOCKS];
-int dc_block_tosend_next[MAX_DC_BLOCKS];
-int dc_block_tosend_total[MAX_DC_BLOCKS];
-int dc_block_tosend_remained[MAX_DC_BLOCKS];
-int dc_block_idx[8];
-vector<Request> dc_block_sent_requests[MAX_DC_BLOCKS];
-Request *block_req = new Request[MAX_DC_BLOCKS];
+vector<vector<Request>> dc_block_tosend_instrs[8];
+vector<Request> dc_block_sent_requests[8];
+bool trace_finished = false;
+extern Trace dc_trace;
+bool read_new_block = false;
+int id = 0;
+int total_access = 0;
+
+void dc_receive(Request &req) {
+    hint("DC received %s\n", req.c_str());
+    dc_llc->callback(req);
+
+    // Removing corresponding DC sent requests
+    for (int block_idx = 0; block_idx < 8; block_idx++) {
+        auto req_it = dc_block_sent_requests[block_idx].begin();
+        while (req_it != dc_block_sent_requests[block_idx].end()) {
+            if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
+                hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
+                req_it = dc_block_sent_requests[block_idx].erase(req_it);
+            } else {
+                ++req_it;
+            }
+        }
+        if ((dc_block_sent_requests[block_idx].size() == 0) && (dc_block_tosend_instrs[block_idx][0].size() == 0)) {
+            dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
+        }
+    }
+}
+
+void get_new_block(int block) {
+    long addr = 0;
+    Request::Type type = Request::Type::READ;
+    Request::Type RW_type = Request::Type::MAX;
+    assert(trace_finished == false);
+    while (trace_finished == false) {
+        trace_finished = !dc_trace.get_dramtrace_request(addr, type);
+        if (trace_finished == false) {
+            if (type == Request::Type::DC_BLOCK) {
+                if (read_new_block)
+                    break;
+                read_new_block = true;
+            } else if (type == Request::Type::READ) {
+                dc_block_tosend_instrs[block].push_back(vector<Request>());
+                RW_type = Request::Type::READ;
+            } else if (type == Request::Type::WRITE) {
+                dc_block_tosend_instrs[block].push_back(vector<Request>());
+                RW_type = Request::Type::WRITE;
+            } else {
+                assert(type == Request::Type::MAX);
+                assert((RW_type == Request::Type::READ) || (RW_type == Request::Type::WRITE));
+                Request req(addr, RW_type);
+                req.coreid = 0;
+                req.callback = dc_receive;
+                req.dc_blockid = block;
+                req.addr = addr;
+                req.type = RW_type;
+                req.reqid = id++;
+                dc_block_tosend_instrs[block][dc_block_tosend_instrs[block].size() - 1].push_back(req);
+                total_access++;
+            }
+        }
+    }
+}
 
 void dc_blocks_clock(int block) {
-    while (dc_block_idx[block] < MAX_DC_BLOCKS && dc_block_tosend_remained[dc_block_idx[block]] == 0) {
-        dc_block_idx[block] += 8;
+
+    if (dc_block_tosend_instrs[block].size() == 0) {
+        if (trace_finished)
+            return;
+        get_new_block(block);
     }
-    block = dc_block_idx[block];
-    if (block >= MAX_DC_BLOCKS)
-        return;
     hint("Block [%d]: Clocking...\n", block);
-    while (dc_block_tosend_remained[block] > 0) {
-        Request next_req = dc_block_tosend_requests[block][dc_block_tosend_next[block]];
-        if (next_req.type == Request::Type::DC_START) {
-            assert(dc_block_sent_requests[block].size() == 0);
-            hint("Block [%d]: DC_Start removed (%s)\n", block, next_req.c_str());
-            dc_block_tosend_next[block] += 1;
-            dc_block_tosend_remained[block] -= 1;
-            op_trace << dc_cachesys->clk << " " << block << " S " << next_req.reqid << endl;
-        } else if (next_req.type == Request::Type::DC_FINISH) {
-            if (dc_block_sent_requests[block].size() == 0) {
-                hint("Block [%d]: DC_Finish removed (%s)\n", block, next_req.c_str());
-                dc_block_tosend_next[block] += 1;
-                dc_block_tosend_remained[block] -= 1;
-                op_trace << dc_cachesys->clk << " " << block << " F " << next_req.reqid << endl;
-            } else {
-                hint("Block [%d]: DC_Finish stalled (%s)\n", block, next_req.c_str());
-                break;
-            }
+    while (dc_block_tosend_instrs[block][0].size() > 0) {
+        Request req = dc_block_tosend_instrs[block][0][0];
+        assert((req.type == Request::Type::READ) || (req.type == Request::Type::WRITE));
+        if (dc_l2->should_send(req) == false) {
+            hint("Block [%d]: Mem addr should not be sent (%s)\n", block, req.c_str());
+            break;
         } else {
-            assert((next_req.type == Request::Type::READ) || (next_req.type == Request::Type::WRITE));
-            if (dc_l2->should_send(next_req) == false) {
-                hint("Block [%d]: Mem addr should not be sent (%s)\n", block, next_req.c_str());
+            if (dc_l2->send(req) == false) {
+                hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
                 break;
             } else {
-                if (dc_l2->send(next_req) == false) {
-                    hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, next_req.c_str());
-                    break;
-                } else {
-                    hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, next_req.c_str());
-                    dc_block_sent_requests[block].push_back(next_req);
-                    dc_block_tosend_next[block] += 1;
-                    dc_block_tosend_remained[block] -= 1;
-                }
+                hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
+                dc_block_sent_requests[block].push_back(req);
+                dc_block_tosend_instrs[block][0].erase(dc_block_tosend_instrs[block][0].begin());
             }
         }
     }
@@ -357,27 +392,9 @@ void dc_blocks_clock_all() {
     }
 }
 
-void dc_receive(Request &req) {
-    hint("DC received %s\n", req.c_str());
-    dc_llc->callback(req);
-
-    // Removing corresponding DC sent requests
-    for (int block_idx = 0; block_idx < MAX_DC_BLOCKS; block_idx++) {
-        auto req_it = dc_block_sent_requests[block_idx].begin();
-        while (req_it != dc_block_sent_requests[block_idx].end()) {
-            if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
-                hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
-                req_it = dc_block_sent_requests[block_idx].erase(req_it);
-            } else {
-                ++req_it;
-            }
-        }
-    }
-}
-
 template <typename T>
 void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
-    Trace trace(files);
+    Trace dc_trace(files);
 
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
@@ -402,119 +419,27 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
 
     /* run simulation */
     bool stall = false, end = false;
-    int reads = 0, writes = 0, clks = 0;
-    long addr = 0;
-    Request::Type type = Request::Type::READ;
-    map<int, int> latencies;
-    auto read_complete = [&latencies](Request &r) { latencies[r.depart - r.arrive]++; };
-
-    for (int block_idx = 0; block_idx < MAX_DC_BLOCKS; block_idx++) {
-        block_req[block_idx] = Request(addr, type, read_complete);
-        block_req[block_idx].coreid = 0;
-        block_req[block_idx].callback = dc_receive;
-        block_req[block_idx].dc_blockid = 0;
-        dc_block_tosend_next[block_idx] = 0;
-        dc_block_tosend_remained[block_idx] = 0;
-        dc_block_tosend_total[block_idx] = 0;
-        dc_block_idx[block_idx % 8] = block_idx % 8;
-    }
+    int clks = 0;
 
     int tick_mult = cpu_tick * mem_tick;
     long i = 0;
-    bool finished = false;
+    bool sim_finished = false;
     int id = 0;
-    int total_access = 0;
     long current_block = 0;
-    while (finished == false) {
-        hint("While1, %d clk!\n", clks);
-
-        while (end == false) {
-            end = !trace.get_dramtrace_request(addr, type);
-            if (end == false) {
-                if ((type == Request::Type::DC_START) || (type == Request::Type::DC_FINISH)) {
-                    assert(addr < MAX_DC_BLOCKS);
-                    current_block = addr;
-                    block_req[current_block].addr = addr;
-                    block_req[current_block].type = type;
-                    block_req[current_block].reqid = -1;
-                    dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
-                    dc_block_tosend_remained[current_block] += 1;
-                    dc_block_tosend_total[current_block] += 1;
-                } else {
-                    id++;
-                    block_req[current_block].addr = addr;
-                    block_req[current_block].type = type;
-                    block_req[current_block].reqid = id;
-                    dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
-                    dc_block_tosend_remained[current_block] += 1;
-                    dc_block_tosend_total[current_block] += 1;
-                    total_access++;
-                    if (type == Request::Type::READ)
-                        reads++;
-                    else if (type == Request::Type::WRITE)
-                        writes++;
+    while (sim_finished == false) {
+        if (trace_finished && dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests())) {
+            sim_finished = true;
+            for (int block_idx = 0; block_idx < 8; block_idx++) {
+                if (dc_block_tosend_instrs[block_idx].size() != 0) {
+                    sim_finished = false;
+                    break;
                 }
-            } else {
-                memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
-                                                        // write queue are drained
-            }
-        }
-
-        // if (end == false) {
-        //     if (stall == true) {
-        //         stall = !dc_l2->should_send(block_req[current_block]);
-        //         if (stall == false) {
-        //             dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
-        //             total_access++;
-        //             if (type == Request::Type::READ)
-        //                 reads++;
-        //             else if (type == Request::Type::WRITE)
-        //                 writes++;
-        //         }
-        //     }
-        //     while ((stall == false) && (end == false)) {
-        //         hint("While2, %d clk!\n", clks);
-        //         end = !trace.get_dramtrace_request(addr, type);
-        //         if (!end) {
-        //             if ((type == Request::Type::DC_START) || (type == Request::Type::DC_FINISH)) {
-        //                 current_block = addr;
-        //                 block_req[current_block].addr = addr;
-        //                 block_req[current_block].type = type;
-        //                 block_req[current_block].reqid = -1;
-        //                 dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
-        //                 dc_blocks_clock(current_block);
-        //             } else {
-        //                 block_req[current_block].addr = addr;
-        //                 block_req[current_block].type = type;
-        //                 block_req[current_block].reqid = id;
-        //                 id++;
-        //                 stall = !dc_l2->should_send(block_req[current_block]);
-        //                 if (stall == false) {
-        //                     dc_block_tosend_requests[current_block].push_back(block_req[current_block]);
-        //                     dc_blocks_clock(current_block);
-        //                     total_access++;
-        //                     if (type == Request::Type::READ)
-        //                         reads++;
-        //                     else if (type == Request::Type::WRITE)
-        //                         writes++;
-        //                 }
-        //             }
-        //         } else {
-        //             memory.set_high_writeq_watermark(0.0f); // make sure that all write requests in the
-        //                                                     // write queue are drained
-        //         }
-        //     }
-        // } else {
-        finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
-        if (finished) {
-            for (int block_idx = 0; block_idx < MAX_DC_BLOCKS; block_idx++) {
-                if (dc_block_tosend_remained[block_idx] != 0) {
-                    hint("There is still %d requests in block %d, first request is %s\n", dc_block_tosend_remained[block_idx], block_idx, dc_block_tosend_requests[block_idx][dc_block_tosend_next[block_idx]].c_str());
-                    finished = false;
+                if (dc_block_sent_requests[block_idx].size() != 0) {
+                    sim_finished = false;
+                    break;
                 }
             }
         }
-        // }
 
         if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
             dc_blocks_clock_all();

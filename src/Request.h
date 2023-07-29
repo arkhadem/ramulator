@@ -38,8 +38,7 @@ public:
         INITIALIZED,
         EVICT_DIRTY,
         EVICT_CLEAN,
-        DC_START,
-        DC_FINISH,
+        DC_BLOCK,
         MAX
     } type;
     int vid = -1;
