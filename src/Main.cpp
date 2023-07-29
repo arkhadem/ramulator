@@ -295,7 +295,7 @@ std::shared_ptr<CacheSystem> dc_cachesys;
 vector<vector<Request>> dc_block_tosend_instrs[8];
 vector<Request> dc_block_sent_requests[8];
 bool trace_finished = false;
-extern Trace dc_trace;
+Trace *dc_trace;
 bool read_new_block = false;
 int id = 0;
 int total_access = 0;
@@ -327,7 +327,7 @@ void get_new_block(int block) {
     Request::Type RW_type = Request::Type::MAX;
     assert(trace_finished == false);
     while (trace_finished == false) {
-        trace_finished = !dc_trace.get_dramtrace_request(addr, type);
+        trace_finished = !dc_trace->get_dramtrace_request(addr, type);
         if (trace_finished == false) {
             if (type == Request::Type::DC_BLOCK) {
                 if (read_new_block)
@@ -394,7 +394,7 @@ void dc_blocks_clock_all() {
 
 template <typename T>
 void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
-    Trace dc_trace(files);
+    dc_trace = new Trace(files);
 
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
@@ -418,14 +418,11 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     dc_l2->concatlower(dc_llc);
 
     /* run simulation */
-    bool stall = false, end = false;
     int clks = 0;
 
     int tick_mult = cpu_tick * mem_tick;
     long i = 0;
     bool sim_finished = false;
-    int id = 0;
-    long current_block = 0;
     while (sim_finished == false) {
         if (trace_finished && dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests())) {
             sim_finished = true;
