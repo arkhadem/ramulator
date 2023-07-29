@@ -307,15 +307,17 @@ void dc_receive(Request &req) {
     // Removing corresponding DC sent requests
     for (int block_idx = 0; block_idx < 8; block_idx++) {
         auto req_it = dc_block_sent_requests[block_idx].begin();
+        bool hit = false;
         while (req_it != dc_block_sent_requests[block_idx].end()) {
             if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
                 hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
                 req_it = dc_block_sent_requests[block_idx].erase(req_it);
+                hit = true;
             } else {
                 ++req_it;
             }
         }
-        if ((dc_block_sent_requests[block_idx].size() == 0) && (dc_block_tosend_instrs[block_idx][0].size() == 0)) {
+        if (hit && (dc_block_sent_requests[block_idx].size() == 0) && (dc_block_tosend_instrs[block_idx][0].size() == 0)) {
             dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
         }
     }
