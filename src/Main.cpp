@@ -33,6 +33,8 @@
 #include "WideIO.h"
 #include "WideIO2.h"
 
+#define MAX_DC_BLOCKS 256
+
 using namespace std;
 using namespace ramulator;
 
@@ -292,14 +294,21 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
 ramulator::Cache *dc_llc;
 ramulator::Cache *dc_l2;
 std::shared_ptr<CacheSystem> dc_cachesys;
-vector<Request> dc_block_tosend_requests[8];
-int dc_block_tosend_next[8];
-int dc_block_tosend_total[8];
-int dc_block_tosend_remained[8];
-vector<Request> dc_block_sent_requests[8];
-Request *block_req = new Request[8];
+vector<Request> dc_block_tosend_requests[MAX_DC_BLOCKS];
+int dc_block_tosend_next[MAX_DC_BLOCKS];
+int dc_block_tosend_total[MAX_DC_BLOCKS];
+int dc_block_tosend_remained[MAX_DC_BLOCKS];
+int dc_block_idx[8];
+vector<Request> dc_block_sent_requests[MAX_DC_BLOCKS];
+Request *block_req = new Request[MAX_DC_BLOCKS];
 
 void dc_blocks_clock(int block) {
+    while (dc_block_idx[block] < MAX_DC_BLOCKS && dc_block_tosend_remained[dc_block_idx[block]] == 0) {
+        dc_block_idx[block] += 8;
+    }
+    block = dc_block_idx[block];
+    if (block >= MAX_DC_BLOCKS)
+        return;
     hint("Block [%d]: Clocking...\n", block);
     while (dc_block_tosend_remained[block] > 0) {
         Request next_req = dc_block_tosend_requests[block][dc_block_tosend_next[block]];
@@ -353,7 +362,7 @@ void dc_receive(Request &req) {
     dc_llc->callback(req);
 
     // Removing corresponding DC sent requests
-    for (int block_idx = 0; block_idx < 8; block_idx++) {
+    for (int block_idx = 0; block_idx < MAX_DC_BLOCKS; block_idx++) {
         auto req_it = dc_block_sent_requests[block_idx].begin();
         while (req_it != dc_block_sent_requests[block_idx].end()) {
             if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
@@ -399,7 +408,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     map<int, int> latencies;
     auto read_complete = [&latencies](Request &r) { latencies[r.depart - r.arrive]++; };
 
-    for (int block_idx = 0; block_idx < 8; block_idx++) {
+    for (int block_idx = 0; block_idx < MAX_DC_BLOCKS; block_idx++) {
         block_req[block_idx] = Request(addr, type, read_complete);
         block_req[block_idx].coreid = 0;
         block_req[block_idx].callback = dc_receive;
@@ -407,6 +416,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         dc_block_tosend_next[block_idx] = 0;
         dc_block_tosend_remained[block_idx] = 0;
         dc_block_tosend_total[block_idx] = 0;
+        dc_block_idx[block_idx % 8] = block_idx % 8;
     }
 
     int tick_mult = cpu_tick * mem_tick;
@@ -422,6 +432,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
             end = !trace.get_dramtrace_request(addr, type);
             if (end == false) {
                 if ((type == Request::Type::DC_START) || (type == Request::Type::DC_FINISH)) {
+                    assert(addr < MAX_DC_BLOCKS);
                     current_block = addr;
                     block_req[current_block].addr = addr;
                     block_req[current_block].type = type;
@@ -496,7 +507,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         // } else {
         finished = dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests());
         if (finished) {
-            for (int block_idx = 0; block_idx < 8; block_idx++) {
+            for (int block_idx = 0; block_idx < MAX_DC_BLOCKS; block_idx++) {
                 if (dc_block_tosend_remained[block_idx] != 0) {
                     hint("There is still %d requests in block %d, first request is %s\n", dc_block_tosend_remained[block_idx], block_idx, dc_block_tosend_requests[block_idx][dc_block_tosend_next[block_idx]].c_str());
                     finished = false;
