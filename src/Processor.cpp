@@ -1400,10 +1400,12 @@ Trace::Trace(vector<const char *> trace_fnames, int DC_blocks) {
     assert(trace_fnames.size() == 1);
     std::ifstream *files_arr = new std::ifstream[DC_blocks]();
     for (int idx = 0; idx < DC_blocks; idx++) {
-        trace_names.push_back(trace_fnames[0]);
-        files_arr[idx].open(trace_fnames[0]);
+        char file_name[256];
+        sprintf(file_name, "%s.%s%d", trace_fnames[0], idx < 10 ? "0" : "", idx);
+        trace_names.push_back(file_name);
+        files_arr[idx].open(file_name);
         if (!files_arr[idx].good()) {
-            std::cerr << "Bad trace file: " << trace_fnames[0] << std::endl;
+            std::cerr << "Bad trace file: " << file_name << std::endl;
             exit(1);
         }
         files.push_back(files_arr + idx);

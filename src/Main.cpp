@@ -314,7 +314,7 @@ void get_new_instruction(int block) {
                     Request fake_req = Request(0, Request::Type::MAX);
                     assert(fake_req.type == Request::Type::MAX);
                     dc_block_tosend_instrs[block].push_back(fake_req);
-                    hint("Block [%d]: reveiced new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", dc_block_tosend_instrs[block].size());
+                    hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
                     break;
                 }
             } else {
@@ -326,7 +326,7 @@ void get_new_instruction(int block) {
                         Request fake_req = Request(0, Request::Type::MAX);
                         assert(fake_req.type == Request::Type::MAX);
                         dc_block_tosend_instrs[block].push_back(fake_req);
-                        hint("Block [%d]: reveiced new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", dc_block_tosend_instrs[block].size());
+                        hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
                         break;
                     }
                 } else if (type == Request::Type::WRITE) {
@@ -335,7 +335,7 @@ void get_new_instruction(int block) {
                         Request fake_req = Request(0, Request::Type::MAX);
                         assert(fake_req.type == Request::Type::MAX);
                         dc_block_tosend_instrs[block].push_back(fake_req);
-                        hint("Block [%d]: reveiced new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", dc_block_tosend_instrs[block].size());
+                        hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
                         break;
                     }
                 } else {
