@@ -26,7 +26,7 @@
 #endif
 
 #define MAX_CORE_ID 16
-#define MAX_GPIC_SA_NUM 64
+#define MAX_GPIC_SA_NUM 1024
 
 #ifndef LANES_PER_CB
 #define LANES_PER_CB 1024

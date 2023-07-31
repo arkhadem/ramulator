@@ -40,62 +40,33 @@ bool ramulator::warmup_complete = false;
 
 std::map<core_type_t, core_config_t> ramulator::core_configs;
 
-int ramulator::l3_size = 1 << 21;
-int ramulator::l3_assoc = 1 << 4;
+// int ramulator::l3_size = 1 << 23;
+int ramulator::l3_size = 1 << 22;
+// int ramulator::l3_assoc = 1 << 3;
+int ramulator::l3_assoc = 1 << 2;
 int ramulator::l3_blocksz = 1 << 6;
 int ramulator::mshr_per_bank = 64;
 float ramulator::l3_access_energy = 167.581634688;
-int ramulator::l3_gpic_SA_num = 32;
+int ramulator::l3_gpic_SA_num = 1024;
 
 void declare_configuration(const Config &configs) {
-    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.size = 1 << 16;
-    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.assoc = 1 << 2;
-    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.blocksz = 1 << 6;
-    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.mshr_num = 12;
-    ramulator::core_configs[core_type_t::SILVER].l1_cache_config.access_energy = 9.006323047;
 
-    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.size = 1 << 16;
-    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.assoc = 1 << 2;
-    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.blocksz = 1 << 6;
-    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.mshr_num = 12;
-    ramulator::core_configs[core_type_t::GOLD].l1_cache_config.access_energy = 9.006323047;
-
-    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.size = 1 << 16;
-    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.size = 1 << 15;
+    ramulator::core_configs[core_type_t::PRIME].l1_cache_config.assoc = 1 << 3;
     ramulator::core_configs[core_type_t::PRIME].l1_cache_config.blocksz = 1 << 6;
     ramulator::core_configs[core_type_t::PRIME].l1_cache_config.mshr_num = 12;
     ramulator::core_configs[core_type_t::PRIME].l1_cache_config.access_energy = 9.006323047;
 
-    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.size = 1 << 16;
-    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.assoc = 1 << 2;
-    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.blocksz = 1 << 6;
-    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.mshr_num = 46;
-    ramulator::core_configs[core_type_t::SILVER].l2_cache_config.access_energy = 20.655976172;
-
-    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.size = 1 << 17;
-    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.assoc = 1 << 2;
-    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.blocksz = 1 << 6;
-    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.mshr_num = 46;
-    ramulator::core_configs[core_type_t::GOLD].l2_cache_config.access_energy = 20.655976172;
-
-    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
-    // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 19;
-    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 2;
-    // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 3;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 20;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 4;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.blocksz = 1 << 6;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.mshr_num = 46;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.access_energy = 20.655976172;
 
-    ramulator::core_configs[core_type_t::SILVER].ipc = 1;
-    ramulator::core_configs[core_type_t::GOLD].ipc = 3;
-    ramulator::core_configs[core_type_t::PRIME].ipc = 3;
+    ramulator::core_configs[core_type_t::PRIME].ipc = 5;
 
-    ramulator::core_configs[core_type_t::SILVER].gpic_SA_num = 8;
-    ramulator::core_configs[core_type_t::GOLD].gpic_SA_num = 16;
-    ramulator::core_configs[core_type_t::PRIME].gpic_SA_num = 32;
+    ramulator::core_configs[core_type_t::PRIME].gpic_SA_num = 1024;
 
-    ramulator::core_configs[core_type_t::SILVER].out_of_order = false;
-    ramulator::core_configs[core_type_t::GOLD].out_of_order = true;
     ramulator::core_configs[core_type_t::PRIME].out_of_order = true;
 }
 
@@ -289,27 +260,28 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
     proc.reset_state();
 }
 
-ramulator::Cache *dc_llc;
-ramulator::Cache *dc_l2;
-std::shared_ptr<CacheSystem> dc_cachesys;
-vector<vector<Request>> dc_block_tosend_instrs[8];
-vector<Request> dc_block_sent_requests[8];
+function<bool(Request &)> dc_send;
+vector<vector<Request>> dc_block_tosend_instrs[256];
+vector<Request> dc_block_sent_requests[256];
 bool trace_finished = false;
 Trace *dc_trace;
 bool read_new_block = false;
 int id = 0;
 int total_access = 0;
 
+long dc_align(long addr) {
+    return (addr & ~(64 - 1l));
+}
+
 void dc_receive(Request &req) {
     hint("DC received %s\n", req.c_str());
-    dc_llc->callback(req);
 
     // Removing corresponding DC sent requests
-    for (int block_idx = 0; block_idx < 8; block_idx++) {
+    for (int block_idx = 0; block_idx < 256; block_idx++) {
         auto req_it = dc_block_sent_requests[block_idx].begin();
         bool hit = false;
         while (req_it != dc_block_sent_requests[block_idx].end()) {
-            if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
+            if (dc_align(req.addr) == dc_align(req_it->addr)) {
                 hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
                 req_it = dc_block_sent_requests[block_idx].erase(req_it);
                 hit = true;
@@ -369,27 +341,22 @@ void dc_blocks_clock(int block) {
     while (dc_block_tosend_instrs[block][0].size() > 0) {
         Request req = dc_block_tosend_instrs[block][0][0];
         assert((req.type == Request::Type::READ) || (req.type == Request::Type::WRITE));
-        if (dc_l2->should_send(req) == false) {
-            hint("Block [%d]: Mem addr should not be sent (%s)\n", block, req.c_str());
+        if (dc_send(req) == false) {
+            hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
             break;
         } else {
-            if (dc_l2->send(req) == false) {
-                hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
-                break;
-            } else {
-                hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
-                dc_block_sent_requests[block].push_back(req);
-                dc_block_tosend_instrs[block][0].erase(dc_block_tosend_instrs[block][0].begin());
-            }
+            hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
+            dc_block_sent_requests[block].push_back(req);
+            dc_block_tosend_instrs[block][0].erase(dc_block_tosend_instrs[block][0].begin());
         }
     }
 }
 
 void dc_blocks_clock_all() {
     hint("Clocking all blocks\n");
-    int block_start = rand() % 8;
-    for (int block_offset = 0; block_offset < 8; block_offset++) {
-        int block_idx = (block_start + block_offset) % 8;
+    int block_start = rand() % 256;
+    for (int block_offset = 0; block_offset < 256; block_offset++) {
+        int block_idx = (block_start + block_offset) % 256;
         dc_blocks_clock(block_idx);
     }
 }
@@ -397,38 +364,22 @@ void dc_blocks_clock_all() {
 template <typename T>
 void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
     dc_trace = new Trace(files);
-
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
 
-    auto send_memory = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
+    dc_send = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
     declare_configuration(configs);
-
-    dc_cachesys = std::shared_ptr<CacheSystem>(new CacheSystem(configs, send_memory));
-    dc_llc = new ramulator::Cache(ramulator::l3_size, ramulator::l3_assoc, ramulator::l3_blocksz, ramulator::mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, dc_cachesys, l3_gpic_SA_num);
-
-    dc_l2 = new ramulator::Cache(
-        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.size,
-        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.assoc,
-        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.blocksz,
-        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.mshr_num,
-        core_configs[ramulator::core_type_t::PRIME].l2_cache_config.access_energy,
-        Cache::Level::L2,
-        dc_cachesys,
-        core_configs[ramulator::core_type_t::PRIME].gpic_SA_num,
-        0);
-    dc_l2->concatlower(dc_llc);
 
     /* run simulation */
     int clks = 0;
-
+    long cpu_clks = 0;
     int tick_mult = cpu_tick * mem_tick;
     long i = 0;
     bool sim_finished = false;
     while (sim_finished == false) {
-        if (trace_finished && dc_cachesys->finished() && dc_l2->finished() && dc_llc->finished() && (!memory.pending_requests())) {
+        if (trace_finished && (!memory.pending_requests())) {
             sim_finished = true;
-            for (int block_idx = 0; block_idx < 8; block_idx++) {
+            for (int block_idx = 0; block_idx < 256; block_idx++) {
                 if (dc_block_tosend_instrs[block_idx].size() != 0) {
                     sim_finished = false;
                     break;
@@ -442,10 +393,9 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
 
         if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
             dc_blocks_clock_all();
-            dc_l2->tick();
-            dc_cachesys->tick();
-            if (dc_cachesys->clk % 1000000 == 0) {
-                printf("DC heartbeat, cycles: %ld \n", dc_cachesys->clk);
+            cpu_clks++;
+            if (cpu_clks % 1000 == 0) {
+                printf("DC heartbeat, cycles: %ld \n", cpu_clks);
             }
         }
         if (((i % tick_mult) % cpu_tick) == 0) {
@@ -458,7 +408,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
-    printf("finished %d accesses in %d clks\n", total_access, clks / cpu_tick);
+    printf("finished %d accesses in %ld clks\n", total_access, cpu_clks);
 }
 
 template <typename T>

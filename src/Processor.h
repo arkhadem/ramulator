@@ -41,7 +41,7 @@ private:
 
 class Window {
 public:
-    int depth = 128;
+    int depth = 64;
 
     Window(Core *_core, bool _out_of_order, int _ipc)
         : out_of_order(_out_of_order), ipc(_ipc), sent_list(depth, false), req_list(depth, Request()), core(_core) {
