@@ -375,7 +375,6 @@ bool dc_blocks_clock(int block) {
             hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
             dc_block_sent_requests[block].push_back(req);
             dc_block_tosend_instrs[block].erase(dc_block_tosend_instrs[block].begin());
-            return true;
         }
     }
     return true;
