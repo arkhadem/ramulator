@@ -277,7 +277,6 @@ long dc_align(long addr) {
 
 void dc_receive(Request &req) {
     hint("DC received %s\n", req.c_str());
-
     // Removing corresponding DC sent requests
     for (int block_idx = 0; block_idx < 256; block_idx++) {
         auto req_it = dc_block_sent_requests[block_idx].begin();
@@ -295,6 +294,7 @@ void dc_receive(Request &req) {
             if (dc_block_tosend_instrs[block_idx].size() == 1) {
                 assert(dc_block_tosend_instrs[block_idx][0].type == Request::Type::MAX);
                 dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
+                hint("Block [%d]: removed instruction!\n", block_idx);
             }
         }
     }
@@ -314,6 +314,7 @@ void get_new_instruction(int block) {
                     Request fake_req = Request(0, Request::Type::MAX);
                     assert(fake_req.type == Request::Type::MAX);
                     dc_block_tosend_instrs[block].push_back(fake_req);
+                    hint("Block [%d]: reveiced new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", dc_block_tosend_instrs[block].size());
                     break;
                 }
             } else {
@@ -325,6 +326,7 @@ void get_new_instruction(int block) {
                         Request fake_req = Request(0, Request::Type::MAX);
                         assert(fake_req.type == Request::Type::MAX);
                         dc_block_tosend_instrs[block].push_back(fake_req);
+                        hint("Block [%d]: reveiced new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", dc_block_tosend_instrs[block].size());
                         break;
                     }
                 } else if (type == Request::Type::WRITE) {
@@ -333,6 +335,7 @@ void get_new_instruction(int block) {
                         Request fake_req = Request(0, Request::Type::MAX);
                         assert(fake_req.type == Request::Type::MAX);
                         dc_block_tosend_instrs[block].push_back(fake_req);
+                        hint("Block [%d]: reveiced new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", dc_block_tosend_instrs[block].size());
                         break;
                     }
                 } else {
@@ -358,6 +361,7 @@ void dc_blocks_clock(int block) {
     if (dc_block_tosend_instrs[block].size() == 0) {
         if (dc_trace_finished[block])
             return;
+        hint("Block [%d]: instructions finished, requesting new instructions!\n", block);
         get_new_instruction(block);
         if (dc_block_tosend_instrs[block].size() == 0) {
             assert(dc_trace_finished[block] == true);
