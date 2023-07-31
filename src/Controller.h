@@ -66,12 +66,12 @@ protected:
 public:
     /* Member Variables */
     long clk = 0;
-    DRAM<T>* channel;
+    DRAM<T> *channel;
 
-    Scheduler<T>* scheduler; // determines the highest priority request whose commands will be issued
-    RowPolicy<T>* rowpolicy; // determines the row-policy (e.g., closed-row vs. open-row)
-    RowTable<T>* rowtable; // tracks metadata about rows (e.g., which are open and for how long)
-    Refresh<T>* refresh;
+    Scheduler<T> *scheduler; // determines the highest priority request whose commands will be issued
+    RowPolicy<T> *rowpolicy; // determines the row-policy (e.g., closed-row vs. open-row)
+    RowTable<T> *rowtable;   // tracks metadata about rows (e.g., which are open and for how long)
+    Refresh<T> *refresh;
 
     struct Queue {
         list<Request> q;
@@ -79,19 +79,19 @@ public:
         unsigned int size() { return q.size(); }
     };
 
-    Queue readq; // queue for read requests
+    Queue readq;  // queue for read requests
     Queue writeq; // queue for write requests
-    Queue actq; // read and write requests for which activate was issued are moved to
+    Queue actq;   // read and write requests for which activate was issued are moved to
         // actq, which has higher priority than readq and writeq.
         // This is an optimization
         // for avoiding useless activations (i.e., PRECHARGE
         // after ACTIVATE w/o READ of WRITE command)
     Queue otherq; // queue for all "other" requests (e.g., refresh)
 
-    deque<Request> pending; // read requests that are about to receive data from DRAM
-    bool write_mode = false; // whether write requests should be prioritized over reads
+    deque<Request> pending;         // read requests that are about to receive data from DRAM
+    bool write_mode = false;        // whether write requests should be prioritized over reads
     float wr_high_watermark = 0.8f; // threshold for switching to write mode
-    float wr_low_watermark = 0.2f; // threshold for switching back to read mode
+    float wr_low_watermark = 0.2f;  // threshold for switching back to read mode
     //long refreshed = 0;  // last time refresh requests were generated
 
     /* Command trace for DRAMPower 3.1 */
@@ -102,14 +102,8 @@ public:
     bool print_cmd_trace = false;
 
     /* Constructor */
-    Controller(const Config& configs, DRAM<T>* channel)
-        : channel(channel)
-        , scheduler(new Scheduler<T>(this))
-        , rowpolicy(new RowPolicy<T>(this))
-        , rowtable(new RowTable<T>(this))
-        , refresh(new Refresh<T>(this))
-        , cmd_trace_files(channel->children.size())
-    {
+    Controller(const Config &configs, DRAM<T> *channel)
+        : channel(channel), scheduler(new Scheduler<T>(this)), rowpolicy(new RowPolicy<T>(this)), rowtable(new RowTable<T>(this)), refresh(new Refresh<T>(this)), cmd_trace_files(channel->children.size()) {
         record_cmd_trace = configs.record_cmd_trace();
         print_cmd_trace = configs.print_cmd_trace();
         if (record_cmd_trace) {
@@ -252,20 +246,18 @@ public:
 #endif
     }
 
-    ~Controller()
-    {
+    ~Controller() {
         delete scheduler;
         delete rowpolicy;
         delete rowtable;
         delete channel;
         delete refresh;
-        for (auto& file : cmd_trace_files)
+        for (auto &file : cmd_trace_files)
             file.close();
         cmd_trace_files.clear();
     }
 
-    void finish(long read_req, long dram_cycles)
-    {
+    void finish(long read_req, long dram_cycles) {
         read_latency_avg = read_latency_sum.value() / read_req;
         req_queue_length_avg = req_queue_length_sum.value() / dram_cycles;
         read_req_queue_length_avg = read_req_queue_length_sum.value() / dram_cycles;
@@ -275,8 +267,7 @@ public:
     }
 
     /* Member Functions */
-    Queue& get_queue(Request::Type type)
-    {
+    Queue &get_queue(Request::Type type) {
         switch (int(type)) {
         case int(Request::Type::READ):
             return readq;
@@ -287,9 +278,8 @@ public:
         }
     }
 
-    bool enqueue(Request& req)
-    {
-        Queue& queue = get_queue(req.type);
+    bool enqueue(Request &req) {
+        Queue &queue = get_queue(req.type);
         if (queue.max == queue.size())
             return false;
 
@@ -297,7 +287,7 @@ public:
         queue.q.push_back(req);
         // shortcut for read requests, if a write to same addr exists
         // necessary for coherence
-        if (req.type == Request::Type::READ && find_if(writeq.q.begin(), writeq.q.end(), [req](Request& wreq) { return req.addr == wreq.addr; }) != writeq.q.end()) {
+        if (req.type == Request::Type::READ && find_if(writeq.q.begin(), writeq.q.end(), [req](Request &wreq) { return req.addr == wreq.addr; }) != writeq.q.end()) {
             req.depart = clk + 1;
             pending.push_back(req);
             readq.q.pop_back();
@@ -305,8 +295,7 @@ public:
         return true;
     }
 
-    void tick()
-    {
+    void tick() {
         clk++;
         req_queue_length_sum += readq.size() + writeq.size() + pending.size();
         read_req_queue_length_sum += readq.size() + pending.size();
@@ -314,7 +303,7 @@ public:
 
         /*** 1. Serve completed reads ***/
         if (pending.size()) {
-            Request& req = pending[0];
+            Request &req = pending[0];
             if (req.depart <= clk) {
                 if (req.depart - req.arrive > 1) { // this request really accessed a row
                     read_latency_sum += req.depart - req.arrive;
@@ -344,7 +333,7 @@ public:
 
         // First check the actq (which has higher priority) to see if there
         // are requests available to service in this cycle
-        Queue* queue = &actq;
+        Queue *queue = &actq;
         typename T::Command cmd;
         auto req = scheduler->get_head(queue->q);
 
@@ -438,76 +427,64 @@ public:
 
         if (req->type == Request::Type::WRITE) {
             channel->update_serving_requests(req->addr_vec.data(), -1, clk);
-            // req->callback(*req);
+            req->callback(*req);
         }
 
         // remove request from queue
         queue->q.erase(req);
     }
 
-    bool is_ready(list<Request>::iterator req)
-    {
+    bool is_ready(list<Request>::iterator req) {
         typename T::Command cmd = get_first_cmd(req);
         return channel->check(cmd, req->addr_vec.data(), clk);
     }
 
-    bool is_ready(typename T::Command cmd, const vector<int>& addr_vec)
-    {
+    bool is_ready(typename T::Command cmd, const vector<int> &addr_vec) {
         return channel->check(cmd, addr_vec.data(), clk);
     }
 
-    bool is_row_hit(list<Request>::iterator req)
-    {
+    bool is_row_hit(list<Request>::iterator req) {
         // cmd must be decided by the request type, not the first cmd
         typename T::Command cmd = channel->spec->translate[int(req->type)];
         return channel->check_row_hit(cmd, req->addr_vec.data());
     }
 
-    bool is_row_hit(typename T::Command cmd, const vector<int>& addr_vec)
-    {
+    bool is_row_hit(typename T::Command cmd, const vector<int> &addr_vec) {
         return channel->check_row_hit(cmd, addr_vec.data());
     }
 
-    bool is_row_open(list<Request>::iterator req)
-    {
+    bool is_row_open(list<Request>::iterator req) {
         // cmd must be decided by the request type, not the first cmd
         typename T::Command cmd = channel->spec->translate[int(req->type)];
         return channel->check_row_open(cmd, req->addr_vec.data());
     }
 
-    bool is_row_open(typename T::Command cmd, const vector<int>& addr_vec)
-    {
+    bool is_row_open(typename T::Command cmd, const vector<int> &addr_vec) {
         return channel->check_row_open(cmd, addr_vec.data());
     }
 
-    void update_temp(ALDRAM::Temp current_temperature)
-    {
+    void update_temp(ALDRAM::Temp current_temperature) {
     }
 
     // For telling whether this channel is busying in processing read or write
-    bool is_active()
-    {
+    bool is_active() {
         return (channel->cur_serving_requests > 0);
     }
 
     // For telling whether this channel is under refresh
-    bool is_refresh()
-    {
+    bool is_refresh() {
         return clk <= channel->end_of_refreshing;
     }
 
-    void set_high_writeq_watermark(const float watermark)
-    {
+    void set_high_writeq_watermark(const float watermark) {
         wr_high_watermark = watermark;
     }
 
-    void set_low_writeq_watermark(const float watermark)
-    {
+    void set_low_writeq_watermark(const float watermark) {
         wr_low_watermark = watermark;
     }
 
-    void record_core(int coreid)
-    {
+    void record_core(int coreid) {
 #ifndef INTEGRATED_WITH_GEM5
         record_read_hits[coreid] = read_row_hits[coreid];
         record_read_misses[coreid] = read_row_misses[coreid];
@@ -519,21 +496,19 @@ public:
     }
 
 private:
-    typename T::Command get_first_cmd(list<Request>::iterator req)
-    {
+    typename T::Command get_first_cmd(list<Request>::iterator req) {
         typename T::Command cmd = channel->spec->translate[int(req->type)];
         return channel->decode(cmd, req->addr_vec.data());
     }
 
     // upgrade to an autoprecharge command
-    void cmd_issue_autoprecharge(typename T::Command& cmd,
-        const vector<int>& addr_vec)
-    {
+    void cmd_issue_autoprecharge(typename T::Command &cmd,
+                                 const vector<int> &addr_vec) {
 
         // currently, autoprecharge is only used with closed row policy
         if (channel->spec->is_accessing(cmd) && rowpolicy->type == RowPolicy<T>::Type::ClosedAP) {
             // check if it is the last request to the opened row
-            Queue* queue = write_mode ? &writeq : &readq;
+            Queue *queue = write_mode ? &writeq : &readq;
 
             auto begin = addr_vec.begin();
             vector<int> rowgroup(begin, begin + int(T::Level::Row) + 1);
@@ -550,7 +525,7 @@ private:
             }
 
             if (num_row_hits == 0) {
-                Queue* queue = &actq;
+                Queue *queue = &actq;
                 for (auto itr = queue->q.begin(); itr != queue->q.end(); ++itr) {
                     if (is_row_hit(itr)) {
                         auto begin2 = itr->addr_vec.begin();
@@ -575,8 +550,7 @@ private:
         }
     }
 
-    void issue_cmd(typename T::Command cmd, const vector<int>& addr_vec)
-    {
+    void issue_cmd(typename T::Command cmd, const vector<int> &addr_vec) {
         cmd_issue_autoprecharge(cmd, addr_vec);
         assert(is_ready(cmd, addr_vec));
         channel->update(cmd, addr_vec.data(), clk);
@@ -590,8 +564,8 @@ private:
         rowtable->update(cmd, addr_vec, clk);
         if (record_cmd_trace) {
             // select rank
-            auto& file = cmd_trace_files[addr_vec[1]];
-            string& cmd_name = channel->spec->command_name[int(cmd)];
+            auto &file = cmd_trace_files[addr_vec[1]];
+            string &cmd_name = channel->spec->command_name[int(cmd)];
             file << clk << ',' << cmd_name;
             // TODO bad coding here
             if (cmd_name == "PREA" || cmd_name == "REF")
@@ -610,8 +584,7 @@ private:
             printf("\n");
         }
     }
-    vector<int> get_addr_vec(typename T::Command cmd, list<Request>::iterator req)
-    {
+    vector<int> get_addr_vec(typename T::Command cmd, list<Request>::iterator req) {
         return req->addr_vec;
     }
 };
@@ -630,8 +603,8 @@ template <>
 void Controller<TLDRAM>::tick();
 
 template <>
-void Controller<TLDRAM>::cmd_issue_autoprecharge(typename TLDRAM::Command& cmd,
-    const vector<int>& addr_vec);
+void Controller<TLDRAM>::cmd_issue_autoprecharge(typename TLDRAM::Command &cmd,
+                                                 const vector<int> &addr_vec);
 
 } /*namespace ramulator*/
 

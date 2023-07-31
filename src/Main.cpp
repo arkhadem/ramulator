@@ -334,7 +334,7 @@ bool get_new_instruction(int block) {
                 req.coreid = 0;
                 req.callback = dc_receive;
                 req.dc_blockid = block;
-                req.addr = addr;
+                req.addr = dc_align(addr);
                 req.type = dc_block_next_instr_type[block];
                 req.reqid = id++;
                 dc_block_tosend_instrs[block].push_back(req);
