@@ -1684,35 +1684,35 @@ bool Trace::get_filtered_request(long &bubble_cnt, long &req_addr, Request::Type
 
 bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type, int block) {
     string line;
-    for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
-        int trace_idx = (last_trace + trace_offset) % files.size();
-        try {
-            getline(*(files[trace_idx]), line);
-        } catch (const std::runtime_error &ex) {
-            std::cout << ex.what() << std::endl;
-        }
-        if (files[trace_idx]->eof()) {
-            files[trace_idx]->close();
-            files.erase(files.begin() + trace_idx);
-            trace_offset--;
-            continue;
-        }
 
-        string first_word = get_remove_first_word(line);
-
-        if (first_word.compare("newblock") == 0) {
-            req_type = Request::Type::DC_BLOCK;
-            req_addr = std::stoul(get_remove_first_word(line));
-        } else if (first_word.compare("R") == 0) {
-            req_type = Request::Type::READ;
-        } else if (first_word.compare("W") == 0) {
-            req_type = Request::Type::WRITE;
-        } else {
-            req_type = Request::Type::MAX;
-            req_addr = std::stoul(first_word, nullptr, 16);
-        }
-        last_trace++;
-        return true;
+    if (files[block]->is_open() == false) {
+        return false;
     }
-    return false;
+
+    if (files[block]->eof()) {
+        files[block]->close();
+        return false;
+    }
+
+    try {
+        getline(*(files[block]), line);
+    } catch (const std::runtime_error &ex) {
+        std::cout << ex.what() << std::endl;
+    }
+
+    string first_word = get_remove_first_word(line);
+
+    if (first_word.compare("newblock") == 0) {
+        req_type = Request::Type::DC_BLOCK;
+        req_addr = std::stoul(get_remove_first_word(line));
+    } else if (first_word.compare("R") == 0) {
+        req_type = Request::Type::READ;
+    } else if (first_word.compare("W") == 0) {
+        req_type = Request::Type::WRITE;
+    } else {
+        req_type = Request::Type::MAX;
+        req_addr = std::stoul(first_word, nullptr, 16);
+    }
+
+    return true;
 }

@@ -300,73 +300,69 @@ void dc_receive(Request &req) {
     }
 }
 
-void get_new_instruction(int block) {
+bool get_new_instruction(int block) {
     long addr = 0;
     Request::Type type = Request::Type::READ;
     assert(dc_trace_finished[block] == false);
     assert(dc_block_tosend_instrs[block].size() == 0);
     while (dc_trace_finished[block] == false) {
         dc_trace_finished[block] = !dc_trace->get_dramtrace_request(addr, type, block);
-        if (dc_trace_finished[block] == false) {
-            if (type == Request::Type::DC_BLOCK) {
-                dc_block_skip_instrs[block] = (addr % 256 == block) ? false : true;
+        if (dc_trace_finished[block] == true)
+            break;
+        if (type == Request::Type::DC_BLOCK) {
+            dc_block_skip_instrs[block] = (addr % 256 == block) ? false : true;
+            if (dc_block_tosend_instrs[block].size() != 0) {
+                break;
+            }
+        } else {
+            if (dc_block_skip_instrs[block] == true)
+                continue;
+            if (type == Request::Type::READ) {
+                dc_block_next_instr_type[block] = Request::Type::READ;
                 if (dc_block_tosend_instrs[block].size() != 0) {
-                    Request fake_req = Request(0, Request::Type::MAX);
-                    assert(fake_req.type == Request::Type::MAX);
-                    dc_block_tosend_instrs[block].push_back(fake_req);
-                    hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
+                    break;
+                }
+            } else if (type == Request::Type::WRITE) {
+                dc_block_next_instr_type[block] = Request::Type::WRITE;
+                if (dc_block_tosend_instrs[block].size() != 0) {
                     break;
                 }
             } else {
-                if (dc_block_skip_instrs[block] == true)
-                    continue;
-                if (type == Request::Type::READ) {
-                    dc_block_next_instr_type[block] = Request::Type::READ;
-                    if (dc_block_tosend_instrs[block].size() != 0) {
-                        Request fake_req = Request(0, Request::Type::MAX);
-                        assert(fake_req.type == Request::Type::MAX);
-                        dc_block_tosend_instrs[block].push_back(fake_req);
-                        hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
-                        break;
-                    }
-                } else if (type == Request::Type::WRITE) {
-                    dc_block_next_instr_type[block] = Request::Type::WRITE;
-                    if (dc_block_tosend_instrs[block].size() != 0) {
-                        Request fake_req = Request(0, Request::Type::MAX);
-                        assert(fake_req.type == Request::Type::MAX);
-                        dc_block_tosend_instrs[block].push_back(fake_req);
-                        hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
-                        break;
-                    }
-                } else {
-                    assert(type == Request::Type::MAX);
-                    assert((dc_block_next_instr_type[block] == Request::Type::READ) || (dc_block_next_instr_type[block] == Request::Type::WRITE));
-                    Request req(addr, dc_block_next_instr_type[block]);
-                    req.coreid = 0;
-                    req.callback = dc_receive;
-                    req.dc_blockid = block;
-                    req.addr = addr;
-                    req.type = dc_block_next_instr_type[block];
-                    req.reqid = id++;
-                    dc_block_tosend_instrs[block].push_back(req);
-                    dc_total_accesses++;
-                }
+                assert(type == Request::Type::MAX);
+                assert((dc_block_next_instr_type[block] == Request::Type::READ) || (dc_block_next_instr_type[block] == Request::Type::WRITE));
+                Request req(addr, dc_block_next_instr_type[block]);
+                req.coreid = 0;
+                req.callback = dc_receive;
+                req.dc_blockid = block;
+                req.addr = addr;
+                req.type = dc_block_next_instr_type[block];
+                req.reqid = id++;
+                dc_block_tosend_instrs[block].push_back(req);
+                dc_total_accesses++;
             }
         }
+    }
+    if (dc_block_tosend_instrs[block].size() != 0) {
+        Request fake_req = Request(0, Request::Type::MAX);
+        assert(fake_req.type == Request::Type::MAX);
+        dc_block_tosend_instrs[block].push_back(fake_req);
+        hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
+        return true;
+    } else {
+        return false;
     }
 }
 
 void dc_blocks_clock(int block) {
-
     if (dc_block_tosend_instrs[block].size() == 0) {
         if (dc_trace_finished[block])
             return;
         hint("Block [%d]: instructions finished, requesting new instructions!\n", block);
-        get_new_instruction(block);
-        if (dc_block_tosend_instrs[block].size() == 0) {
-            assert(dc_trace_finished[block] == true);
+        if (get_new_instruction(block) == false) {
+            hint("Block [%d]: finished everything, quitting!\n", block);
             return;
         }
+        assert(dc_block_tosend_instrs[block].size() != 0);
     }
     hint("Block [%d]: Clocking...\n", block);
     while (dc_block_tosend_instrs[block].size() > 1) {
