@@ -387,6 +387,7 @@ void dc_blocks_clock_all(int clk) {
         int block_idx = (block_start + block_offset) % 256;
         if (dc_blocks_clock(block_idx) == false) {
             hint("Clocker: ignoring clocking rest of blocks because %d failed to send\n", block_idx);
+            break;
         }
     }
 }
