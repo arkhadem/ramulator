@@ -270,6 +270,8 @@ Trace *dc_trace;
 bool read_new_block = false;
 int id = 0;
 int dc_total_accesses = 0;
+long dc_instruction_retired = 0;
+long dc_cpu_clks = 0;
 
 long dc_align(long addr) {
     return (addr & ~(64 - 1l));
@@ -295,6 +297,7 @@ void dc_receive(Request &req) {
                 assert(dc_block_tosend_instrs[block_idx][0].type == Request::Type::MAX);
                 dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
                 hint("Block [%d]: removed instruction!\n", block_idx);
+                dc_instruction_retired = dc_cpu_clks;
             }
         }
     }
@@ -380,8 +383,8 @@ bool dc_blocks_clock(int block) {
     return true;
 }
 
-void dc_blocks_clock_all(int clk) {
-    hint("Clocker@[%d]: clocking blocks\n", clk);
+void dc_blocks_clock_all() {
+    hint("Clocker@[%d]: clocking blocks\n", dc_cpu_clks);
     int block_start = rand() % 256;
     for (int block_offset = 0; block_offset < 256; block_offset++) {
         int block_idx = (block_start + block_offset) % 256;
@@ -409,7 +412,6 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
 
     /* run simulation */
     int clks = 0;
-    long cpu_clks = 0;
     int tick_mult = cpu_tick * mem_tick;
     bool sim_finished = false;
     while (sim_finished == false) {
@@ -432,10 +434,13 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         }
 
         if (((clks % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
-            dc_blocks_clock_all(cpu_clks);
-            cpu_clks++;
-            if (cpu_clks % 1000 == 0) {
-                printf("DC heartbeat, cycles: %ld \n", cpu_clks);
+            dc_blocks_clock_all();
+            dc_cpu_clks++;
+            if (dc_cpu_clks % 100000 == 0) {
+                printf("DC heartbeat, cycles: %ld \n", dc_cpu_clks);
+                if (dc_cpu_clks - dc_instruction_retired > 1000000) {
+                    printf("Error: last instruction received goes back to cycle %ld, quitting!\n", dc_instruction_retired);
+                }
             }
         }
         if (((clks % tick_mult) % cpu_tick) == 0) {
@@ -447,7 +452,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
-    printf("finished %d accesses in %ld clks\n", dc_total_accesses, cpu_clks);
+    printf("finished %d accesses in %ld clks\n", dc_total_accesses, dc_cpu_clks);
 }
 
 template <typename T>
