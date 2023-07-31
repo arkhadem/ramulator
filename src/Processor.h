@@ -21,6 +21,7 @@ class Core;
 class Trace {
 public:
     Trace(vector<const char *> trace_fname);
+    Trace(vector<const char *> trace_fnames, int DC_blocks);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
     bool get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type);
@@ -28,7 +29,7 @@ public:
     bool get_filtered_request(long &bubble_cnt, long &req_addr, Request::Type &req_type);
     // trace file format 2:
     // [address(hex)] [R/W]
-    bool get_dramtrace_request(long &req_addr, Request::Type &req_type);
+    bool get_dramtrace_request(long &req_addr, Request::Type &req_type, int block);
 
     long expected_limit_insts = 0;
 

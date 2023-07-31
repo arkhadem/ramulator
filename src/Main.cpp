@@ -92,7 +92,7 @@ void run_dramtrace(const Config &configs, Memory<T, Controller> &memory, const s
 
     while (!end || memory.pending_requests()) {
         if (!end && !stall) {
-            end = !trace.get_dramtrace_request(addr, type);
+            end = !trace.get_dramtrace_request(addr, type, 0);
         }
 
         if (!end) {
@@ -261,13 +261,15 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
 }
 
 function<bool(Request &)> dc_send;
-vector<vector<Request>> dc_block_tosend_instrs[256];
+vector<Request> dc_block_tosend_instrs[256];
+bool dc_block_skip_instrs[256];
 vector<Request> dc_block_sent_requests[256];
+Request::Type dc_block_next_instr_type[256];
 bool trace_finished = false;
 Trace *dc_trace;
 bool read_new_block = false;
 int id = 0;
-int total_access = 0;
+int dc_total_accesses = 0;
 
 long dc_align(long addr) {
     return (addr & ~(64 - 1l));
@@ -289,42 +291,63 @@ void dc_receive(Request &req) {
                 ++req_it;
             }
         }
-        if (hit && (dc_block_sent_requests[block_idx].size() == 0) && (dc_block_tosend_instrs[block_idx][0].size() == 0)) {
-            dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
+        if (hit && (dc_block_sent_requests[block_idx].size() == 0)) {
+            if (dc_block_tosend_instrs[block_idx].size() == 1) {
+                assert(dc_block_tosend_instrs[block_idx][0].type == Request::Type::MAX);
+                dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
+            }
         }
     }
 }
 
-void get_new_block(int block) {
+void get_new_instruction(int block) {
     long addr = 0;
     Request::Type type = Request::Type::READ;
-    Request::Type RW_type = Request::Type::MAX;
     assert(trace_finished == false);
+    assert(dc_block_tosend_instrs[block].size() == 0);
     while (trace_finished == false) {
-        trace_finished = !dc_trace->get_dramtrace_request(addr, type);
+        trace_finished = !dc_trace->get_dramtrace_request(addr, type, block);
         if (trace_finished == false) {
             if (type == Request::Type::DC_BLOCK) {
-                if (read_new_block)
+                dc_block_skip_instrs[block] = (addr % 256 == block) ? false : true;
+                if (dc_block_tosend_instrs[block].size() != 0) {
+                    Request fake_req = Request(0, Request::Type::MAX);
+                    assert(fake_req.type == Request::Type::MAX);
+                    dc_block_tosend_instrs[block].push_back(fake_req);
                     break;
-                read_new_block = true;
-            } else if (type == Request::Type::READ) {
-                dc_block_tosend_instrs[block].push_back(vector<Request>());
-                RW_type = Request::Type::READ;
-            } else if (type == Request::Type::WRITE) {
-                dc_block_tosend_instrs[block].push_back(vector<Request>());
-                RW_type = Request::Type::WRITE;
+                }
             } else {
-                assert(type == Request::Type::MAX);
-                assert((RW_type == Request::Type::READ) || (RW_type == Request::Type::WRITE));
-                Request req(addr, RW_type);
-                req.coreid = 0;
-                req.callback = dc_receive;
-                req.dc_blockid = block;
-                req.addr = addr;
-                req.type = RW_type;
-                req.reqid = id++;
-                dc_block_tosend_instrs[block][dc_block_tosend_instrs[block].size() - 1].push_back(req);
-                total_access++;
+                if (dc_block_skip_instrs[block] == true)
+                    continue;
+                if (type == Request::Type::READ) {
+                    dc_block_next_instr_type[block] = Request::Type::READ;
+                    if (dc_block_tosend_instrs[block].size() != 0) {
+                        Request fake_req = Request(0, Request::Type::MAX);
+                        assert(fake_req.type == Request::Type::MAX);
+                        dc_block_tosend_instrs[block].push_back(fake_req);
+                        break;
+                    }
+                } else if (type == Request::Type::WRITE) {
+                    dc_block_next_instr_type[block] = Request::Type::WRITE;
+                    if (dc_block_tosend_instrs[block].size() != 0) {
+                        Request fake_req = Request(0, Request::Type::MAX);
+                        assert(fake_req.type == Request::Type::MAX);
+                        dc_block_tosend_instrs[block].push_back(fake_req);
+                        break;
+                    }
+                } else {
+                    assert(type == Request::Type::MAX);
+                    assert((dc_block_next_instr_type[block] == Request::Type::READ) || (dc_block_next_instr_type[block] == Request::Type::WRITE));
+                    Request req(addr, dc_block_next_instr_type[block]);
+                    req.coreid = 0;
+                    req.callback = dc_receive;
+                    req.dc_blockid = block;
+                    req.addr = addr;
+                    req.type = dc_block_next_instr_type[block];
+                    req.reqid = id++;
+                    dc_block_tosend_instrs[block].push_back(req);
+                    dc_total_accesses++;
+                }
             }
         }
     }
@@ -335,11 +358,11 @@ void dc_blocks_clock(int block) {
     if (dc_block_tosend_instrs[block].size() == 0) {
         if (trace_finished)
             return;
-        get_new_block(block);
+        get_new_instruction(block);
     }
     hint("Block [%d]: Clocking...\n", block);
-    while (dc_block_tosend_instrs[block][0].size() > 0) {
-        Request req = dc_block_tosend_instrs[block][0][0];
+    while (dc_block_tosend_instrs[block].size() > 1) {
+        Request req = dc_block_tosend_instrs[block][0];
         assert((req.type == Request::Type::READ) || (req.type == Request::Type::WRITE));
         if (dc_send(req) == false) {
             hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
@@ -347,7 +370,7 @@ void dc_blocks_clock(int block) {
         } else {
             hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
             dc_block_sent_requests[block].push_back(req);
-            dc_block_tosend_instrs[block][0].erase(dc_block_tosend_instrs[block][0].begin());
+            dc_block_tosend_instrs[block].erase(dc_block_tosend_instrs[block].begin());
         }
     }
 }
@@ -363,12 +386,17 @@ void dc_blocks_clock_all() {
 
 template <typename T>
 void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
-    dc_trace = new Trace(files);
+    dc_trace = new Trace(files, 256);
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
 
     dc_send = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
     declare_configuration(configs);
+
+    for (int i = 0; i < 256; i++) {
+        dc_block_next_instr_type[i] = Request::Type::MAX;
+        dc_block_skip_instrs[i] = true;
+    }
 
     /* run simulation */
     int clks = 0;
@@ -408,7 +436,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
-    printf("finished %d accesses in %ld clks\n", total_access, cpu_clks);
+    printf("finished %d accesses in %ld clks\n", dc_total_accesses, cpu_clks);
 }
 
 template <typename T>

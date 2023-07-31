@@ -1396,6 +1396,22 @@ Trace::Trace(vector<const char *> trace_fnames) {
     last_trace = 0;
 }
 
+Trace::Trace(vector<const char *> trace_fnames, int DC_blocks) {
+    assert(trace_fnames.size() == 1);
+    std::ifstream *files_arr = new std::ifstream[DC_blocks]();
+    for (int idx = 0; idx < DC_blocks; idx++) {
+        trace_names.push_back(trace_fnames[0]);
+        files_arr[idx].open(trace_fnames[0]);
+        if (!files_arr[idx].good()) {
+            std::cerr << "Bad trace file: " << trace_fnames[0] << std::endl;
+            exit(1);
+        }
+        files.push_back(files_arr + idx);
+    }
+    warmed_up = false;
+    last_trace = 0;
+}
+
 std::string get_remove_first_word(std::string &line) {
     size_t pos;
 
@@ -1664,7 +1680,7 @@ bool Trace::get_filtered_request(long &bubble_cnt, long &req_addr, Request::Type
     return false;
 }
 
-bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type) {
+bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type, int block) {
     string line;
     for (int trace_offset = 0; trace_offset < (int)files.size(); trace_offset++) {
         int trace_idx = (last_trace + trace_offset) % files.size();
@@ -1684,6 +1700,7 @@ bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type) {
 
         if (first_word.compare("newblock") == 0) {
             req_type = Request::Type::DC_BLOCK;
+            req_addr = std::stoul(get_remove_first_word(line));
         } else if (first_word.compare("R") == 0) {
             req_type = Request::Type::READ;
         } else if (first_word.compare("W") == 0) {
