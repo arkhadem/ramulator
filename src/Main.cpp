@@ -265,7 +265,7 @@ vector<Request> dc_block_tosend_instrs[256];
 bool dc_block_skip_instrs[256];
 vector<Request> dc_block_sent_requests[256];
 Request::Type dc_block_next_instr_type[256];
-bool trace_finished = false;
+bool dc_trace_finished[256];
 Trace *dc_trace;
 bool read_new_block = false;
 int id = 0;
@@ -303,11 +303,11 @@ void dc_receive(Request &req) {
 void get_new_instruction(int block) {
     long addr = 0;
     Request::Type type = Request::Type::READ;
-    assert(trace_finished == false);
+    assert(dc_trace_finished[block] == false);
     assert(dc_block_tosend_instrs[block].size() == 0);
-    while (trace_finished == false) {
-        trace_finished = !dc_trace->get_dramtrace_request(addr, type, block);
-        if (trace_finished == false) {
+    while (dc_trace_finished[block] == false) {
+        dc_trace_finished[block] = !dc_trace->get_dramtrace_request(addr, type, block);
+        if (dc_trace_finished[block] == false) {
             if (type == Request::Type::DC_BLOCK) {
                 dc_block_skip_instrs[block] = (addr % 256 == block) ? false : true;
                 if (dc_block_tosend_instrs[block].size() != 0) {
@@ -356,9 +356,13 @@ void get_new_instruction(int block) {
 void dc_blocks_clock(int block) {
 
     if (dc_block_tosend_instrs[block].size() == 0) {
-        if (trace_finished)
+        if (dc_trace_finished[block])
             return;
         get_new_instruction(block);
+        if (dc_block_tosend_instrs[block].size() == 0) {
+            assert(dc_trace_finished[block] == true);
+            return;
+        }
     }
     hint("Block [%d]: Clocking...\n", block);
     while (dc_block_tosend_instrs[block].size() > 1) {
@@ -396,16 +400,20 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     for (int i = 0; i < 256; i++) {
         dc_block_next_instr_type[i] = Request::Type::MAX;
         dc_block_skip_instrs[i] = true;
+        dc_trace_finished[i] = false;
     }
 
     /* run simulation */
     int clks = 0;
     long cpu_clks = 0;
     int tick_mult = cpu_tick * mem_tick;
-    long i = 0;
     bool sim_finished = false;
     while (sim_finished == false) {
-        if (trace_finished && (!memory.pending_requests())) {
+        if (dc_trace_finished[0] && memory.pending_requests() == false) {
+            for (int block_idx = 0; block_idx < 256; block_idx++) {
+                if (dc_trace_finished[block_idx] == false)
+                    break;
+            }
             sim_finished = true;
             for (int block_idx = 0; block_idx < 256; block_idx++) {
                 if (dc_block_tosend_instrs[block_idx].size() != 0) {
@@ -419,19 +427,18 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
             }
         }
 
-        if (((i % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
+        if (((clks % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
             dc_blocks_clock_all();
             cpu_clks++;
             if (cpu_clks % 1000 == 0) {
                 printf("DC heartbeat, cycles: %ld \n", cpu_clks);
             }
         }
-        if (((i % tick_mult) % cpu_tick) == 0) {
+        if (((clks % tick_mult) % cpu_tick) == 0) {
             memory.tick();
         }
         clks++;
         Stats::curTick++;
-        i++;
     }
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
