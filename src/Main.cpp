@@ -353,38 +353,42 @@ bool get_new_instruction(int block) {
     }
 }
 
-void dc_blocks_clock(int block) {
+bool dc_blocks_clock(int block) {
+    hint("Block [%d]: Clocking...\n", block);
     if (dc_block_tosend_instrs[block].size() == 0) {
         if (dc_trace_finished[block])
-            return;
+            return true;
         hint("Block [%d]: instructions finished, requesting new instructions!\n", block);
         if (get_new_instruction(block) == false) {
             hint("Block [%d]: finished everything, quitting!\n", block);
-            return;
+            return true;
         }
         assert(dc_block_tosend_instrs[block].size() != 0);
     }
-    hint("Block [%d]: Clocking...\n", block);
     while (dc_block_tosend_instrs[block].size() > 1) {
         Request req = dc_block_tosend_instrs[block][0];
         assert((req.type == Request::Type::READ) || (req.type == Request::Type::WRITE));
         if (dc_send(req) == false) {
             hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
-            break;
+            return false;
         } else {
             hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
             dc_block_sent_requests[block].push_back(req);
             dc_block_tosend_instrs[block].erase(dc_block_tosend_instrs[block].begin());
+            return true;
         }
     }
+    return true;
 }
 
-void dc_blocks_clock_all() {
-    hint("Clocking all blocks\n");
+void dc_blocks_clock_all(int clk) {
+    hint("Clocker@[%d]: clocking blocks\n", clk);
     int block_start = rand() % 256;
     for (int block_offset = 0; block_offset < 256; block_offset++) {
         int block_idx = (block_start + block_offset) % 256;
-        dc_blocks_clock(block_idx);
+        if (dc_blocks_clock(block_idx) == false) {
+            hint("Clocker: ignoring clocking rest of blocks because %d failed to send\n", block_idx);
+        }
     }
 }
 
@@ -428,7 +432,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         }
 
         if (((clks % tick_mult) % mem_tick) == 0) { // When the CPU is ticked cpu_tick times,
-            dc_blocks_clock_all();
+            dc_blocks_clock_all(cpu_clks);
             cpu_clks++;
             if (cpu_clks % 1000 == 0) {
                 printf("DC heartbeat, cycles: %ld \n", cpu_clks);
