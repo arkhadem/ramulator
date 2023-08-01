@@ -262,6 +262,7 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
 
 function<bool(Request &)> dc_send;
 vector<Request> dc_block_tosend_instrs[256];
+int dc_instr_count[256];
 bool dc_block_skip_instrs[256];
 vector<Request> dc_block_sent_requests[256];
 Request::Type dc_block_next_instr_type[256];
@@ -295,6 +296,7 @@ void dc_receive(Request &req) {
         if (hit && (dc_block_sent_requests[block_idx].size() == 0)) {
             if (dc_block_tosend_instrs[block_idx].size() == 1) {
                 assert(dc_block_tosend_instrs[block_idx][0].type == Request::Type::MAX);
+                op_trace << dc_cpu_clks << " " << block_idx << " F " << dc_instr_count[block_idx] << endl;
                 dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
                 hint("Block [%d]: removed instruction!\n", block_idx);
                 dc_instruction_retired = dc_cpu_clks;
@@ -349,6 +351,8 @@ bool get_new_instruction(int block) {
         Request fake_req = Request(0, Request::Type::MAX);
         assert(fake_req.type == Request::Type::MAX);
         dc_block_tosend_instrs[block].push_back(fake_req);
+        dc_instr_count[block] += 1;
+        op_trace << dc_cpu_clks << " " << block << " S " << dc_instr_count[block] << endl;
         hint("Block [%d]: received new %s instructions with %d memory accesses!\n", block, dc_block_tosend_instrs[block][0].type == Request::Type::READ ? "R" : "W", (int)dc_block_tosend_instrs[block].size());
         return true;
     } else {
@@ -384,7 +388,7 @@ bool dc_blocks_clock(int block) {
 }
 
 void dc_blocks_clock_all() {
-    hint("Clocker@[%d]: clocking blocks\n", dc_cpu_clks);
+    hint("Clocker@[%ld]: clocking blocks\n", dc_cpu_clks);
     int block_start = rand() % 256;
     for (int block_offset = 0; block_offset < 256; block_offset++) {
         int block_idx = (block_start + block_offset) % 256;
@@ -408,6 +412,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         dc_block_next_instr_type[i] = Request::Type::MAX;
         dc_block_skip_instrs[i] = true;
         dc_trace_finished[i] = false;
+        dc_instr_count[i] = 0;
     }
 
     /* run simulation */
