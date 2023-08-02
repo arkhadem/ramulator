@@ -260,7 +260,7 @@ void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const s
     proc.reset_state();
 }
 
-function<bool(Request &)> dc_send;
+function<bool(Request &)> dc_send_mem;
 vector<Request> dc_block_tosend_instrs[256];
 int dc_instr_count[256];
 bool dc_block_skip_instrs[256];
@@ -273,13 +273,31 @@ int id = 0;
 int dc_total_accesses = 0;
 long dc_instruction_retired = 0;
 long dc_cpu_clks = 0;
+std::vector<long> dc_mshr_entries;
+int mshr_entry_num = 512;
 
 long dc_align(long addr) {
     return (addr & ~(64 - 1l));
 }
 
+int hit_mshr(long addr) {
+    for (int i = 0; i < dc_mshr_entries.size(); i++) {
+        if (dc_align(addr) == dc_align(dc_mshr_entries[i]))
+            return i;
+    }
+    return -1;
+}
+
 void dc_receive(Request &req) {
     hint("DC received %s\n", req.c_str());
+    // Remove related MSHR entries
+    int mshr_idx = hit_mshr(req.addr);
+
+    if (mshr_idx != dc_mshr_entries.size()) {
+        hint("0x%lx removed from mshr entries.\n", dc_mshr_entries[mshr_idx]);
+        dc_mshr_entries.erase(dc_mshr_entries.begin() + mshr_idx);
+    }
+
     // Removing corresponding DC sent requests
     for (int block_idx = 0; block_idx < 256; block_idx++) {
         auto req_it = dc_block_sent_requests[block_idx].begin();
@@ -303,6 +321,23 @@ void dc_receive(Request &req) {
             }
         }
     }
+}
+
+bool dc_send(Request req) {
+    if (hit_mshr(req.addr)) {
+        hint("Hit in MSHR\n");
+        return true;
+    }
+    if (dc_mshr_entries.size() == mshr_entry_num) {
+        // When no MSHR entries available, the miss request
+        // is stalling.
+        hint("No MSHR entry available\n");
+        return false;
+    }
+    hint("MSHR allocated, sending to memory!\n");
+    dc_mshr_entries.push_back(req.addr);
+    dc_send_mem(req);
+    return true;
 }
 
 bool get_new_instruction(int block) {
@@ -405,7 +440,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
 
-    dc_send = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
+    dc_send_mem = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
     declare_configuration(configs);
 
     for (int i = 0; i < 256; i++) {
@@ -445,6 +480,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
                 printf("DC heartbeat, cycles: %ld \n", dc_cpu_clks);
                 if (dc_cpu_clks - dc_instruction_retired > 1000000) {
                     printf("Error: last instruction received goes back to cycle %ld, quitting!\n", dc_instruction_retired);
+                    exit(-1);
                 }
             }
         }
@@ -454,6 +490,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         clks++;
         Stats::curTick++;
     }
+    assert(dc_mshr_entries.size() == 0);
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
