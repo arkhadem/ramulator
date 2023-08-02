@@ -324,7 +324,7 @@ void dc_receive(Request &req) {
 }
 
 bool dc_send(Request req) {
-    if (hit_mshr(req.addr)) {
+    if (hit_mshr(req.addr) != -1) {
         hint("Hit in MSHR\n");
         return true;
     }
