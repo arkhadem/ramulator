@@ -300,6 +300,7 @@ Trace *dc_trace;
 bool read_new_block = false;
 int id = 0;
 int total_access = 0;
+long dc_clks = 0;
 
 void dc_receive(Request &req) {
     hint("DC received %s\n", req.c_str());
@@ -312,7 +313,7 @@ void dc_receive(Request &req) {
         while (req_it != dc_block_sent_requests[block_idx].end()) {
             if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
                 hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
-                op_trace << dc_cachesys->clk << " " << block_idx << " Received 0x" << std::hex << req.addr << std::dec << endl;
+                op_trace << dc_clks << " " << block_idx << " Received 0x" << std::hex << req.addr << std::dec << endl;
                 req_it = dc_block_sent_requests[block_idx].erase(req_it);
                 hit = true;
             } else {
@@ -321,7 +322,7 @@ void dc_receive(Request &req) {
         }
         if (hit && (dc_block_sent_requests[block_idx].size() == 0) && (dc_block_tosend_instrs[block_idx][0].size() == 0)) {
             dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
-            op_trace << dc_cachesys->clk << " " << block_idx << " Finished " << dc_current_block_num[block_idx] << endl;
+            op_trace << dc_clks << " " << block_idx << " Finished " << dc_current_block_num[block_idx] << endl;
         }
     }
 }
@@ -337,7 +338,7 @@ void get_new_block(int block) {
             if (type == Request::Type::DC_BLOCK) {
                 if (read_new_block) {
                     dc_current_block_num[block] = addr - 1;
-                    op_trace << dc_cachesys->clk << " " << block << " Started " << dc_current_block_num[block] << endl;
+                    op_trace << dc_clks << " " << block << " Started " << dc_current_block_num[block] << endl;
                     break;
                 }
                 read_new_block = true;
@@ -393,13 +394,13 @@ void dc_blocks_clock(int block) {
         } else {
             if (dc_l2->send(req) == false) {
                 hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
-                op_trace << dc_cachesys->clk << " " << block << " Failed  0x" << std::hex << req.addr << std::dec << endl;
+                op_trace << dc_clks << " " << block << " Failed  0x" << std::hex << req.addr << std::dec << endl;
                 break;
             } else {
                 hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
                 dc_block_sent_requests[block].push_back(req);
                 dc_block_tosend_instrs[block][0].erase(dc_block_tosend_instrs[block][0].begin());
-                op_trace << dc_cachesys->clk << " " << block << " Sent 0x" << std::hex << req.addr << std::dec << endl;
+                op_trace << dc_clks << " " << block << " Sent 0x" << std::hex << req.addr << std::dec << endl;
             }
         }
     }
@@ -441,7 +442,6 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
 
     /* run simulation */
     int clks = 0;
-
     int tick_mult = cpu_tick * mem_tick;
     long i = 0;
     bool sim_finished = false;
@@ -464,9 +464,10 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
             dc_blocks_clock_all();
             dc_l2->tick();
             dc_cachesys->tick();
-            if (dc_cachesys->clk % 1000000 == 0) {
-                printf("DC heartbeat, cycles: %ld \n", dc_cachesys->clk);
+            if (dc_clks % 1000000 == 0) {
+                printf("DC heartbeat, cycles: %ld \n", dc_clks);
             }
+            dc_clks += 1;
         }
         if (((i % tick_mult) % cpu_tick) == 0) {
             memory.tick();
@@ -478,7 +479,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     // This a workaround for statistics set only initially lost in the end
     memory.finish();
     Stats::statlist.printall();
-    printf("finished %d accesses in %d clks\n", total_access, clks / cpu_tick);
+    printf("finished %d accesses in %ld clks\n", total_access, dc_clks);
 }
 
 template <typename T>
