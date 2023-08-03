@@ -342,9 +342,21 @@ void get_new_block(int block) {
                 }
                 read_new_block = true;
             } else if (type == Request::Type::READ) {
+                int curr_size = dc_block_tosend_instrs[block].size();
+                if (curr_size != 0) {
+                    if (dc_block_tosend_instrs[block][curr_size - 1].size() == 0) {
+                        dc_block_tosend_instrs[block].erase(dc_block_tosend_instrs[block].begin() + (curr_size - 1));
+                    }
+                }
                 dc_block_tosend_instrs[block].push_back(vector<Request>());
                 RW_type = Request::Type::READ;
             } else if (type == Request::Type::WRITE) {
+                int curr_size = dc_block_tosend_instrs[block].size();
+                if (curr_size != 0) {
+                    if (dc_block_tosend_instrs[block][curr_size - 1].size() == 0) {
+                        dc_block_tosend_instrs[block].erase(dc_block_tosend_instrs[block].begin() + (curr_size - 1));
+                    }
+                }
                 dc_block_tosend_instrs[block].push_back(vector<Request>());
                 RW_type = Request::Type::WRITE;
             } else {
