@@ -329,14 +329,17 @@ bool dc_send(Request req) {
         return true;
     }
     if (dc_mshr_entries.size() == mshr_entry_num) {
-        // When no MSHR entries available, the miss request
-        // is stalling.
+        // When no MSHR entries available, the miss request is stalling.
         hint("No MSHR entry available\n");
         return false;
     }
-    hint("MSHR allocated, sending to memory!\n");
-    dc_mshr_entries.push_back(req.addr);
-    dc_send_mem(req);
+    if (dc_send_mem(req) == true) {
+        hint("MSHR allocated, sending to memory!\n");
+        dc_mshr_entries.push_back(req.addr);
+        return true;
+    } else {
+        return false;
+    }
     return true;
 }
 
