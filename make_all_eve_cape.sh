@@ -1,4 +1,12 @@
 make clean
+make -j7
+mv ramulator ramulator_dc
+
+make clean
+make - FLAGS='-DDEBUG'
+mv ramulator ramulator_dc_debug
+
+make clean
 make -j7 CFLAGS='-DEXE_TYPE=DVI_EXE -DISA_TYPE=LIME_ISA -DLANES_PER_CB=1024 -DLANES_PER_SA=256'
 mv ramulator ramulator_gpic
 

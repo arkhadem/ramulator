@@ -1684,6 +1684,7 @@ bool Trace::get_dramtrace_request(long &req_addr, Request::Type &req_type) {
 
         if (first_word.compare("newblock") == 0) {
             req_type = Request::Type::DC_BLOCK;
+            req_addr = std::stoul(get_remove_first_word(line), nullptr, 10);
         } else if (first_word.compare("R") == 0) {
             req_type = Request::Type::READ;
         } else if (first_word.compare("W") == 0) {

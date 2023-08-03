@@ -294,6 +294,7 @@ ramulator::Cache *dc_l2;
 std::shared_ptr<CacheSystem> dc_cachesys;
 vector<vector<Request>> dc_block_tosend_instrs[8];
 vector<Request> dc_block_sent_requests[8];
+int dc_current_block_num[8];
 bool trace_finished = false;
 Trace *dc_trace;
 bool read_new_block = false;
@@ -311,6 +312,7 @@ void dc_receive(Request &req) {
         while (req_it != dc_block_sent_requests[block_idx].end()) {
             if (dc_l2->align(req.addr) == dc_l2->align(req_it->addr)) {
                 hint("Block [%d]: %s hitted with %s, removing from sent list\n", block_idx, req.c_str(), req_it->c_str());
+                op_trace << dc_cachesys->clk << " " << block_idx << " Received " << req.addr << endl;
                 req_it = dc_block_sent_requests[block_idx].erase(req_it);
                 hit = true;
             } else {
@@ -319,6 +321,7 @@ void dc_receive(Request &req) {
         }
         if (hit && (dc_block_sent_requests[block_idx].size() == 0) && (dc_block_tosend_instrs[block_idx][0].size() == 0)) {
             dc_block_tosend_instrs[block_idx].erase(dc_block_tosend_instrs[block_idx].begin());
+            op_trace << dc_cachesys->clk << " " << block_idx << " Finished " << dc_current_block_num[block_idx] << endl;
         }
     }
 }
@@ -332,8 +335,11 @@ void get_new_block(int block) {
         trace_finished = !dc_trace->get_dramtrace_request(addr, type);
         if (trace_finished == false) {
             if (type == Request::Type::DC_BLOCK) {
-                if (read_new_block)
+                if (read_new_block) {
+                    dc_current_block_num[block] = addr - 1;
+                    op_trace << dc_cachesys->clk << " " << block << " Started " << dc_current_block_num[block] << endl;
                     break;
+                }
                 read_new_block = true;
             } else if (type == Request::Type::READ) {
                 dc_block_tosend_instrs[block].push_back(vector<Request>());
@@ -375,11 +381,13 @@ void dc_blocks_clock(int block) {
         } else {
             if (dc_l2->send(req) == false) {
                 hint("Block [%d]: Mem addr failed to be sent (%s)\n", block, req.c_str());
+                op_trace << dc_cachesys->clk << " " << block << " Failed " << req.addr << endl;
                 break;
             } else {
                 hint("Block [%d]: Mem addr sent, removed from tosend and added to sent (%s)\n", block, req.c_str());
                 dc_block_sent_requests[block].push_back(req);
                 dc_block_tosend_instrs[block][0].erase(dc_block_tosend_instrs[block][0].begin());
+                op_trace << dc_cachesys->clk << " " << block << " Sent " << req.addr << endl;
             }
         }
     }
