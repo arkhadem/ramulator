@@ -3,7 +3,7 @@ make -j7
 mv ramulator ramulator_dc
 
 make clean
-make - FLAGS='-DDEBUG'
+make -j7 FLAGS='-DDEBUG'
 mv ramulator ramulator_dc_debug
 
 make clean
