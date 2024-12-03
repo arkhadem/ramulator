@@ -33,7 +33,7 @@ public:
         POWERDOWN,
         SELFREFRESH,
         EXTENSION,
-        GPIC,
+        MVE,
         FREE,
         INITIALIZED,
         EVICT_DIRTY,
@@ -42,12 +42,21 @@ public:
         MAX
     } type;
     int vid = -1;
+
+    // CB id for microops
     int CB_id = -1;
     int CB_id_dst = -1;
+
+    // The width (number of bits) of the data type
     long data_type = 0;
+
+    // The starting address of the microop for a certain CB
     std::vector<long> addr_starts;
+
+    // The ending address of the microop for a certain CB
     std::vector<long> addr_ends;
-    // long addr_row;
+
+    // Individual element addresses for a microop for a certain CB
     vector<int> addr_vec;
 
     long dst = -1;
@@ -85,28 +94,31 @@ public:
     long depart = -1;
     function<void(Request &)> callback; // call back with more info
 
+    // Minimum SIMD element ID of the microop
     int min_eid = -1;
+
+    // Maximum SIMD element ID of the microop
     int max_eid = -1;
 
     bool *vector_mask;
 
-    // For GPIC loads and stores
+    // For MVE loads and stores
     Request(std::string &opcode, long dst, long src1, long src2, long addr, long addr_end, std::vector<long> addr_starts, std::vector<long> addr_ends, long data_type, long stride, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : opcode(opcode), addr(addr), addr_end(addr_end), stride(stride), type(Type::GPIC), data_type(data_type), addr_starts(addr_starts), addr_ends(addr_ends), dst(dst), src1(src1), src2(src2), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
+        : opcode(opcode), addr(addr), addr_end(addr_end), stride(stride), type(Type::MVE), data_type(data_type), addr_starts(addr_starts), addr_ends(addr_ends), dst(dst), src1(src1), src2(src2), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
-    // For GPIC Computations
+    // For MVE Computations
     Request(std::string &opcode, long dst, long src1, long src2, long data_type, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : opcode(opcode), type(Type::GPIC), data_type(data_type), dst(dst), src1(src1), src2(src2), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
+        : opcode(opcode), type(Type::MVE), data_type(data_type), dst(dst), src1(src1), src2(src2), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
 
-    // For GPIC Configurations
+    // For MVE Configurations
     Request(std::string &opcode, long dim, long value, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
-        : opcode(opcode), dim(dim), value(value), type(Type::GPIC), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
+        : opcode(opcode), dim(dim), value(value), type(Type::MVE), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
         unitid_string = UNITID_2_STRING[unitid];
     }
@@ -118,7 +130,7 @@ public:
         unitid_string = UNITID_2_STRING[unitid];
     }
 
-    // For CPU Loads and Stores in GPIC mode
+    // For CPU Loads and Stores in MVE mode
     Request(long addr, Type type, bool ready, function<void(Request &)> callback, int coreid = MAX_CORE_ID, UnitID unitid = UnitID::MAX)
         : addr(addr), addr_end(addr + 7), type(type), data_type(8), ready(ready), coreid(coreid), unitid(unitid), callback(callback) {
         // assert(coreid == 0);
@@ -188,13 +200,13 @@ public:
         std::stringstream req_stream;
         char *name = new char[1024];
 
-        if (type == Type::GPIC) {
+        if (type == Type::MVE) {
             if (value != -1) {
                 // it's a config instr
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode << "), dim(" << dim << "), value(" << value << ")]";
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(MVE), opcode(" << opcode << "), dim(" << dim << "), value(" << value << ")]";
             } else if (addr != -1) {
                 // it's a load or store instruction
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode;
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(MVE), opcode(" << opcode;
                 if (dst != -1) {
                     req_stream << "), dst(" << dst << "), src1(" << src1 << "), src2(" << src2;
                 }
@@ -216,7 +228,7 @@ public:
                 req_stream << "]";
             } else {
                 // it's a compute instruction
-                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(GPIC), opcode(" << opcode;
+                req_stream << "Request[Core(" << coreid << "), Unit(" << unitid_string << "), ID(" << reqid << ")][type(MVE), opcode(" << opcode;
                 if (dst != -1) {
                     req_stream << "), dst(" << dst << "), src1(" << src1 << "), src2(" << src2;
                 }

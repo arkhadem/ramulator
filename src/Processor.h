@@ -23,7 +23,7 @@ public:
     Trace(vector<const char *> trace_fname);
     // trace file format 1:
     // [# of bubbles(non-mem instructions)] [read address(dec or hex)] <optional: write address(evicted cacheline)>
-    bool get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type);
+    bool get_MVE_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type);
     bool get_unfiltered_request(long &bubble_cnt, long &req_addr, Request::Type &req_type);
     bool get_filtered_request(long &bubble_cnt, long &req_addr, Request::Type &req_type);
     // trace file format 2:
@@ -62,7 +62,7 @@ public:
 private:
     bool find_older_stores(long a_s, long a_e, Request::Type &type, int location);
     bool find_any_older_stores(int location);
-    bool find_older_gpic_random_stores(int location);
+    bool find_older_MVE_random_stores(int location);
     bool check_WAR_dependency(int location, long dst_reg);
     bool check_RAW_dependency(int location, long src1_reg, long src2_reg);
     bool find_any_older_unsent(int location);
@@ -80,10 +80,6 @@ private:
     std::vector<Request> req_list;
     vector<Request> retry_list;
     Core *core;
-    // #if (EXE_TYPE == OUTORDER_EXE)
-    //     long allocated_pr = 0;
-    //     bool all_vr_allocated = false;
-    // #endif
 };
 
 class Core {
@@ -93,10 +89,10 @@ public:
     int id = 0;
     core_type_t core_type;
     int ipc = 0;
-    int gpic_SA_num = 0;
+    int MVE_SA_num = 0;
     bool out_of_order = true;
     function<bool(Request)> ls_send;
-    function<bool(Request)> gpic_send;
+    function<bool(Request)> MVE_send;
 
     Core(const Config &configs, int coreid, core_type_t core_type,
          const std::vector<const char *> &trace_fnames,
@@ -117,8 +113,8 @@ public:
 
     bool no_core_caches = true;
     bool no_shared_cache = true;
-    bool gpic_mode = false;
-    int gpic_level = 1;
+    bool MVE_mode = false;
+    int MVE_level = 1;
 #if (EXE_TYPE == DVI_EXE)
     long free_pr = 256;
 #elif (EXE_TYPE == OUTORDER_EXE)
@@ -139,14 +135,12 @@ public:
     bool reached_limit = false;
 
 private:
-    bool dispatch_gpic();
+    bool dispatch_MVE();
 
     Trace trace;
     Window window;
     Request request;
 
-    // int req_vid = -1;
-    // int req_vid_dst = -1;
     long bubble_cnt = -1;
     long req_addr = -1;
     std::vector<long> req_addr_starts;
@@ -180,7 +174,7 @@ private:
     MemoryBase &memory;
 
     bool warmed_up = false;
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
     std::vector<Request> req_wait_list;
 #endif
 

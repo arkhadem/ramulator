@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-#define MAX_GPIC_QUEUE_SIZE 32
+#define MAX_MVE_QUEUE_SIZE 32
 // #define DEBUG_CACHE
 
 namespace ramulator {
@@ -34,7 +34,7 @@ extern int l3_assoc;
 extern int l3_blocksz;
 extern int mshr_per_bank;
 extern float l3_access_energy;
-extern int l3_gpic_SA_num;
+extern int l3_MVE_SA_num;
 
 class Cache {
 protected:
@@ -50,21 +50,21 @@ protected:
     ScalarStat cache_set_unavailable;
     ScalarStat cache_access_energy;
 
-    ScalarStat *GPIC_compute_energy;
-    ScalarStat *GPIC_compute_comp_energy;
-    ScalarStat *GPIC_compute_rdwr_energy;
-    ScalarStat GPIC_compute_total_energy;
-    ScalarStat GPIC_compute_comp_total_energy;
-    ScalarStat GPIC_compute_rdwr_total_energy;
+    ScalarStat *MVE_compute_energy;
+    ScalarStat *MVE_compute_comp_energy;
+    ScalarStat *MVE_compute_rdwr_energy;
+    ScalarStat MVE_compute_total_energy;
+    ScalarStat MVE_compute_comp_total_energy;
+    ScalarStat MVE_compute_rdwr_total_energy;
 
-    ScalarStat GPIC_host_device_total_cycles;
-    ScalarStat GPIC_move_stall_total_cycles;
-    ScalarStat GPIC_compute_total_cycles;
-    ScalarStat GPIC_memory_total_cycles;
-    ScalarStat *GPIC_host_device_cycles;
-    ScalarStat *GPIC_move_stall_cycles;
-    ScalarStat *GPIC_compute_cycles;
-    ScalarStat *GPIC_memory_cycles;
+    ScalarStat MVE_host_device_total_cycles;
+    ScalarStat MVE_move_stall_total_cycles;
+    ScalarStat MVE_compute_total_cycles;
+    ScalarStat MVE_memory_total_cycles;
+    ScalarStat *MVE_host_device_cycles;
+    ScalarStat *MVE_move_stall_cycles;
+    ScalarStat *MVE_compute_cycles;
+    ScalarStat *MVE_memory_cycles;
 
 public:
     enum class Level {
@@ -90,7 +90,7 @@ public:
     };
 
     Cache(int size, int assoc, int block_size, int mshr_entry_num, float access_energy,
-          Level level, std::shared_ptr<CacheSystem> cachesys, int gpic_CB_num, int core_id = -1);
+          Level level, std::shared_ptr<CacheSystem> cachesys, int MVE_CB_num, int core_id = -1);
 
     void tick();
     void reset_state();
@@ -117,7 +117,7 @@ public:
 
     bool check_full_queue(Request req);
 
-    bool memory_controller(Request req);
+    bool MVE_controller(Request req);
 
     void instrinsic_decoder(Request req);
 
@@ -146,7 +146,7 @@ protected:
     unsigned int mshr_entry_num;
     float access_energy;
     long last_id = 0;
-    int gpic_CB_num;
+    int MVE_CB_num;
 
     std::vector<std::pair<long, std::list<Line>::iterator>> mshr_entries;
 
@@ -156,21 +156,21 @@ protected:
 
     std::map<int, std::list<Line>> cache_lines;
 
-    std::map<std::string, long> GPIC_COMPUTE_DELAY;
-    std::map<std::string, long> GPIC_ACCESS_DELAY;
+    std::map<std::string, long> MVE_COMPUTE_DELAY;
+    std::map<std::string, long> MVE_ACCESS_DELAY;
     std::map<std::string, long> DC_COMPUTE_DELAY;
     std::map<std::string, long> DC_ACCESS_DELAY;
 
     void init_intrinsic_latency();
 
-    std::map<Request, std::vector<std::pair<Request, bool>>> gpic_op_to_mem_ops[MAX_GPIC_SA_NUM];
-    std::map<Request, std::vector<long>> gpic_random_to_mem_ops;
-    std::vector<std::pair<long, Request>> gpic_instruction_queue[MAX_GPIC_SA_NUM];
-    std::vector<std::pair<long, Request>> gpic_compute_queue[MAX_GPIC_SA_NUM];
-    long last_gpic_instruction_compute_clk[MAX_GPIC_SA_NUM];
-    bool last_gpic_instruction_computed[MAX_GPIC_SA_NUM];
-    bool last_gpic_instruction_sent[MAX_GPIC_SA_NUM];
-    std::map<Request, int> gpic_vop_to_num_sop;
+    std::map<Request, std::vector<std::pair<Request, bool>>> MVE_op_to_mem_ops[MAX_MVE_SA_NUM];
+    std::map<Request, std::vector<long>> MVE_random_to_mem_ops;
+    std::vector<std::pair<long, Request>> MVE_instruction_queue[MAX_MVE_SA_NUM];
+    std::vector<std::pair<long, Request>> MVE_compute_queue[MAX_MVE_SA_NUM];
+    long last_MVE_instruction_compute_clk[MAX_MVE_SA_NUM];
+    bool last_MVE_instruction_computed[MAX_MVE_SA_NUM];
+    bool last_MVE_instruction_sent[MAX_MVE_SA_NUM];
+    std::map<Request, int> MVE_vop_to_num_sop;
 
     long VL_reg[4];
     long VC_reg = 1;
@@ -180,7 +180,7 @@ protected:
     long SS_reg[4] = {0, 0, 0, 0};
 
     int V_PER_CB = 1;
-    int CB_PER_V = MAX_GPIC_SA_NUM;
+    int CB_PER_V = MAX_MVE_SA_NUM;
 
     int calc_log2(int val) {
         int n = 0;

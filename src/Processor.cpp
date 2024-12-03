@@ -23,7 +23,7 @@ Processor::Processor(const Config &configs,
       llc(l3_size, l3_assoc, l3_blocksz,
           mshr_per_bank * configs.get_core_num(),
           l3_access_energy, Cache::Level::L3,
-          cachesys, l3_gpic_SA_num) {
+          cachesys, l3_MVE_SA_num) {
 
     assert(cachesys != nullptr);
     int tracenum = trace_list.size();
@@ -120,7 +120,7 @@ void Processor::reset_state() {
 
 void Processor::receive(Request &req) {
     hint("Processor received %s\n", req.c_str());
-    if (req.type == Request::Type::GPIC) {
+    if (req.type == Request::Type::MVE) {
         cores[req.coreid].get()->receive(req);
     } else {
         if (!no_shared_cache) {
@@ -204,11 +204,11 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
            const std::vector<const char *> &trace_fnames, function<bool(Request)> send_next,
            Cache *llc, std::shared_ptr<CacheSystem> cachesys, MemoryBase &memory)
     : id(coreid), core_type(core_type), ipc(core_configs[core_type].ipc),
-      gpic_SA_num(core_configs[core_type].gpic_SA_num),
+      MVE_SA_num(core_configs[core_type].MVE_SA_num),
       out_of_order(core_configs[core_type].out_of_order),
       no_core_caches(!configs.has_core_caches()),
       no_shared_cache(!configs.has_l3_cache()),
-      gpic_mode(configs.is_gpic()),
+      MVE_mode(configs.is_MVE()),
       llc(llc), trace(trace_fnames),
       window(this, core_configs[core_type].out_of_order, core_configs[core_type].ipc),
       request(coreid, Request::UnitID::CORE), memory(memory) {
@@ -216,7 +216,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
     printf("core type: %d, ipc: %d\n", core_type, ipc);
 
     assert(coreid < MAX_CORE_ID);
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
     assert(EXE_TYPE == INORDER_EXE);
 #endif
     // set expected limit instruction for calculating weighted speedup
@@ -226,7 +226,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
     // Build cache hierarchy
     if (no_core_caches) {
         ls_send = send_next;
-        assert(configs.is_gpic() == false);
+        assert(configs.is_MVE() == false);
     } else {
         // L2 caches[0]
         caches.emplace_back(new Cache(
@@ -237,7 +237,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
             core_configs[core_type].l2_cache_config.access_energy,
             Cache::Level::L2,
             cachesys,
-            core_configs[core_type].gpic_SA_num,
+            core_configs[core_type].MVE_SA_num,
             id));
         // L1 caches[1]
         caches.emplace_back(new Cache(
@@ -248,7 +248,7 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
             core_configs[core_type].l1_cache_config.access_energy,
             Cache::Level::L1,
             cachesys,
-            core_configs[core_type].gpic_SA_num,
+            core_configs[core_type].MVE_SA_num,
             id));
         if (llc != nullptr) {
             caches[0]->concatlower(llc);
@@ -257,35 +257,35 @@ Core::Core(const Config &configs, int coreid, core_type_t core_type,
 
         first_level_cache = caches[1].get();
 
-        if (configs.is_gpic()) {
-#if ISA_TYPE == RISCV_ISA
+        if (configs.is_MVE()) {
+#if ISA_TYPE == RVV_ISA
             req_wait_list.clear();
 #endif
             DC_reg = 1;
             VC_reg = 1;
-            VL_reg[0] = gpic_SA_num * LANES_PER_SA;
+            VL_reg[0] = MVE_SA_num * LANES_PER_SA;
             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-            switch (configs.get_gpic_level()) {
+            switch (configs.get_MVE_level()) {
             case 1:
-                gpic_send = bind(&Cache::send, caches[1].get(), placeholders::_1);
+                MVE_send = bind(&Cache::send, caches[1].get(), placeholders::_1);
                 break;
             case 2:
-                gpic_send = bind(&Cache::send, caches[0].get(), placeholders::_1);
+                MVE_send = bind(&Cache::send, caches[0].get(), placeholders::_1);
                 break;
             case 3:
-                gpic_send = send_next;
+                MVE_send = send_next;
                 break;
             default:
-                assert(false && "gpic cache level must be 1, 2, or 3");
+                assert(false && "MVE cache level must be 1, 2, or 3");
                 break;
             }
         }
         ls_send = bind(&Cache::send, caches[1].get(), placeholders::_1);
     }
 
-    if (gpic_mode) {
+    if (MVE_mode) {
         // DO NOTHING
     } else if (no_core_caches) {
         more_reqs = trace.get_filtered_request(
@@ -358,7 +358,7 @@ int *Core::stride_evaluator(long *rstride, bool load) {
     return lstride;
 }
 
-bool Core::dispatch_gpic() {
+bool Core::dispatch_MVE() {
 #if (EXE_TYPE == DVI_EXE) || (EXE_TYPE == OUTORDER_EXE)
     if (req_dst != -1) {
         // it needs physical register allocation
@@ -382,7 +382,7 @@ bool Core::dispatch_gpic() {
         return true;
     }
 #else
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
     if (window.is_full())
         req_wait_list.push_back(request);
     else
@@ -419,7 +419,7 @@ void Core::tick() {
     // bubbles (non-memory operations)
     int inserted = 0;
 
-    if (gpic_mode) {
+    if (MVE_mode) {
 
         if ((warmed_up == true) && (warmup_complete == false)) {
             return;
@@ -428,13 +428,13 @@ void Core::tick() {
         while ((inserted < ipc) && (window.is_full() == false)) {
 #if (EXE_TYPE == DVI_EXE) || (EXE_TYPE == OUTORDER_EXE)
             if (dispatch_stalled == true) {
-                if (dispatch_gpic() == false) {
+                if (dispatch_MVE() == false) {
                     break;
                 }
                 bubble_cnt -= 1;
                 inserted = 1;
             }
-#elif (EXE_TYPE == INORDER_EXE) && (ISA_TYPE == RISCV_ISA)
+#elif (EXE_TYPE == INORDER_EXE) && (ISA_TYPE == RVV_ISA)
             auto random_list_it = req_wait_list.begin();
             while ((random_list_it != req_wait_list.end()) && (window.is_full() == false)) {
                 window.insert(*random_list_it);
@@ -444,7 +444,7 @@ void Core::tick() {
                 break;
 #endif
             if (bubble_cnt < 0) {
-                more_reqs = trace.get_gpic_request(bubble_cnt, req_opcode, req_dst, req_src1, req_src2, req_dim, req_value, req_addr, req_addr_starts, req_stride, req_type); //, req_vid, req_vid_dst);
+                more_reqs = trace.get_MVE_request(bubble_cnt, req_opcode, req_dst, req_src1, req_src2, req_dim, req_value, req_addr, req_addr_starts, req_stride, req_type); //, req_vid, req_vid_dst);
                 if (!more_reqs) {
                     break;
                 }
@@ -479,9 +479,9 @@ void Core::tick() {
                 bubble_cnt = -1;
                 continue;
 #endif
-            } else if (req_type == Request::Type::GPIC) {
+            } else if (req_type == Request::Type::MVE) {
                 if ((req_opcode.find("_set_") != string::npos) || (req_opcode.find("_unset_") != string::npos)) {
-                    // it's a config GPIC instruction
+                    // it's a config MVE instruction
                     request = Request(req_opcode, req_dim, req_value, true, callback, id, Request::UnitID::CORE);
                     assert((req_value >= 0) || (req_value == -1));
                     if (req_opcode.find("stride") != string::npos) {
@@ -496,19 +496,19 @@ void Core::tick() {
                         if (req_opcode.find("length") != string::npos) {
                             assert(req_dim < DC_reg);
                             VL_reg[req_dim] = req_value;
-                            assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * gpic_SA_num));
+                            assert((VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3]) <= (LANES_PER_SA * MVE_SA_num));
                             VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
                         } else if (req_opcode.find("count") != string::npos) {
                             DC_reg = req_value;
                             VC_reg = 1;
-                            VL_reg[0] = gpic_SA_num * LANES_PER_SA;
+                            VL_reg[0] = MVE_SA_num * LANES_PER_SA;
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
                             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
                         } else if (req_opcode.find("init") != string::npos) {
                             DC_reg = 1;
                             VC_reg = 1;
-                            VL_reg[0] = gpic_SA_num * LANES_PER_SA;
+                            VL_reg[0] = MVE_SA_num * LANES_PER_SA;
                             VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
                             LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
                             SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
@@ -520,7 +520,7 @@ void Core::tick() {
                     } else {
                         assert(req_opcode.find("mask") != string::npos);
                     }
-                    assert(dispatch_gpic());
+                    assert(dispatch_MVE());
                 } else if (req_opcode.find("_dict_") != string::npos) {
                     long address_length = (long)(std::ceil((float)((data_type * 256) / 8)));
                     long req_addr_start = req_addr;
@@ -533,7 +533,7 @@ void Core::tick() {
 
                     request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, -1, false, callback, id, Request::UnitID::CORE);
 
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
                     request.ready = true;
                     for (int k = 0; k < VL_reg[1]; k++) {
                         for (int j = 0; j < VL_reg[2]; j++) {
@@ -541,18 +541,18 @@ void Core::tick() {
                                 request.vid = request.vid = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
                                 if ((k == VL_reg[1] - 1) && (j == VL_reg[2] - 1) && (i == VL_reg[3] - 1))
                                     request.ready = false;
-                                dispatch_gpic();
+                                dispatch_MVE();
                             }
                         }
                     }
 #else
-                    if (dispatch_gpic() == false) {
+                    if (dispatch_MVE() == false) {
                         break;
                     }
 #endif
                 } else {
                     if ((req_opcode.find("load") != string::npos) || (req_opcode.find("store") != string::npos)) {
-                        // it's a load or store GPIC instruction
+                        // it's a load or store MVE instruction
 
                         int *stride = stride_evaluator(req_stride.data(), (req_opcode.find("load") != string::npos));
 
@@ -608,7 +608,7 @@ void Core::tick() {
                             }
                         }
 
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
                         int idx = 0;
                         assert(req_wait_list.size() == 0);
                         for (int k = 0; k < VL_reg[1]; k++) {
@@ -625,7 +625,7 @@ void Core::tick() {
                                     if ((k == VL_reg[1] - 1) && (j == VL_reg[2] - 1) && (i == VL_reg[3] - 1))
                                         request.ready = false;
                                     request.vid = idx;
-                                    dispatch_gpic();
+                                    dispatch_MVE();
                                 }
                             }
                         }
@@ -651,14 +651,14 @@ void Core::tick() {
 
                         request = Request(req_opcode, req_dst, req_src1, req_src2, req_addr_start, req_addr_end, req_addr_starts, req_addr_ends, data_type, req_stride[0], false, callback, id, Request::UnitID::CORE);
 
-                        if (dispatch_gpic() == false) {
+                        if (dispatch_MVE() == false) {
                             break;
                         }
 #endif
                     } else {
-                        // it's a computational GPIC instruction
+                        // it's a computational MVE instruction
                         request = Request(req_opcode, req_dst, req_src1, req_src2, data_type, false, callback, id, Request::UnitID::CORE);
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
                         assert(req_wait_list.size() == 0);
                         request.ready = true;
                         for (int k = 0; k < VL_reg[1]; k++) {
@@ -667,12 +667,12 @@ void Core::tick() {
                                     request.vid = (((i * VL_reg[2]) + j) * VL_reg[1]) + k;
                                     if ((k == VL_reg[1] - 1) && (j == VL_reg[2] - 1) && (i == VL_reg[3] - 1))
                                         request.ready = false;
-                                    dispatch_gpic();
+                                    dispatch_MVE();
                                 }
                             }
                         }
 #else
-                        if (dispatch_gpic() == false) {
+                        if (dispatch_MVE() == false) {
                             break;
                         }
 #endif
@@ -685,12 +685,12 @@ void Core::tick() {
             } else if (req_type == Request::Type::READ) {
                 // it's a CPU load instrunction
                 request = Request(req_addr, req_type, false, callback, id, Request::UnitID::CORE);
-                assert(dispatch_gpic());
+                assert(dispatch_MVE());
             } else {
                 // it's a CPU store instrunction
                 assert(req_type == Request::Type::WRITE);
                 request = Request(req_addr, req_type, true, callback, id, Request::UnitID::CORE);
-                assert(dispatch_gpic());
+                assert(dispatch_MVE());
             }
 
             bubble_cnt -= 1;
@@ -817,12 +817,12 @@ void Core::reset_state() {
     last = 0;
     req_addr_starts.clear();
     req_addr_ends.clear();
-#if ISA_TYPE == RISCV_ISA
+#if ISA_TYPE == RVV_ISA
     req_wait_list.clear();
 #endif
     DC_reg = 1;
     VC_reg = 1;
-    VL_reg[0] = gpic_SA_num * LANES_PER_SA;
+    VL_reg[0] = MVE_SA_num * LANES_PER_SA;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
@@ -867,11 +867,11 @@ bool Core::has_retired() {
 
 void Core::receive(Request &req) {
     hint("Core received %s\n", req.c_str());
-    if (req.type == Request::Type::GPIC) {
+    if (req.type == Request::Type::MVE) {
         window.set_ready(req);
     } else {
-        // fix me: if block sizes are different? not related to gpic_level
-        switch (gpic_level) {
+        // fix me: if block sizes are different? not related to MVE_level
+        switch (MVE_level) {
         case 1:
             window.set_ready(req, ~(core_configs[core_type].l1_cache_config.blocksz - 1l));
             break;
@@ -938,16 +938,16 @@ bool Window::find_older_stores(long a_s, long a_e, Request::Type &type, int loca
     int idx = tail;
     while (idx != location) {
         Request curr_request = req_list.at(idx);
-        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("pc3_store") != string::npos)) {
-            // It's a GPIC store
+        if ((curr_request.type == Request::Type::MVE) && (curr_request.opcode.find("mve_store") != string::npos)) {
+            // It's a MVE store
             if (curr_request.opcode.find("storer") != string::npos) {
                 // It's a random store, not predictable
-                type = Request::Type::GPIC;
+                type = Request::Type::MVE;
                 found = true;
             }
             if (overlap(a_s, a_e, curr_request.addr, curr_request.addr_end)) {
                 // It has overlap
-                type = Request::Type::GPIC;
+                type = Request::Type::MVE;
                 found = true;
             }
         }
@@ -971,7 +971,7 @@ bool Window::find_any_older_stores(int location) {
         if (curr_request.type == Request::Type::WRITE) {
             return true;
         }
-        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("pc3_store") != string::npos)) {
+        if ((curr_request.type == Request::Type::MVE) && (curr_request.opcode.find("mve_store") != string::npos)) {
             return true;
         }
         idx = (idx + 1) % depth;
@@ -979,11 +979,11 @@ bool Window::find_any_older_stores(int location) {
     return false;
 }
 
-bool Window::find_older_gpic_random_stores(int location) {
+bool Window::find_older_MVE_random_stores(int location) {
     int idx = tail;
     while (idx != location) {
         Request curr_request = req_list.at(idx);
-        if ((curr_request.type == Request::Type::GPIC) && (curr_request.opcode.find("pc3_storer") != string::npos)) {
+        if ((curr_request.type == Request::Type::MVE) && (curr_request.opcode.find("mve_storer") != string::npos)) {
             return true;
         }
         idx = (idx + 1) % depth;
@@ -997,7 +997,7 @@ bool Window::find_any_older_unsent(int location) {
 
     while (idx != location) {
         Request curr_req = req_list.at(idx);
-        if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
+        if ((curr_req.type == Request::Type::MVE) && (sent_list.at(idx) == false)) {
             return true;
         }
         idx = (idx + 1) % depth;
@@ -1011,7 +1011,7 @@ bool Window::check_WAR_dependency(int location, long dst_reg) {
 
     while (idx != location) {
         Request curr_req = req_list.at(idx);
-        if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
+        if ((curr_req.type == Request::Type::MVE) && (sent_list.at(idx) == false)) {
             if (curr_req.opcode.find("set_") != string::npos)
                 return true;
             if (dst_reg != -1) {
@@ -1031,7 +1031,7 @@ bool Window::check_RAW_dependency(int location, long src1_reg, long src2_reg) {
 
     while (idx != location) {
         Request curr_req = req_list.at(idx);
-        if ((curr_req.type == Request::Type::GPIC) && (sent_list.at(idx) == false)) {
+        if ((curr_req.type == Request::Type::MVE) && (sent_list.at(idx) == false)) {
             if (curr_req.opcode.find("set_") != string::npos)
                 return true;
             if (curr_req.dst != -1) {
@@ -1052,7 +1052,7 @@ int Window::get_location(int location) {
 }
 
 bool Window::check_send(Request &req, int location) {
-    if (req.type == Request::Type::GPIC) {
+    if (req.type == Request::Type::MVE) {
         if (out_of_order == false)
             return false;
 #if (EXE_TYPE == INORDER_EXE)
@@ -1063,7 +1063,7 @@ bool Window::check_send(Request &req, int location) {
         if (req.opcode.find("set_") != string::npos) {
             if (find_any_older_unsent(location) == false) {
                 hint("2- CORE sending %s to cache\n", req.c_str());
-                if (!core->gpic_send(req)) {
+                if (!core->MVE_send(req)) {
                     retry_list.push_back(req);
                 } else {
                     op_trace << core->clk << " core controller " << req.opcode << " " << req.dst << endl;
@@ -1075,11 +1075,11 @@ bool Window::check_send(Request &req, int location) {
         }
         if ((check_WAR_dependency(location, req.dst) == false) && (check_RAW_dependency(location, req.src1, req.src2) == false)) {
             if ((req.addr != -1) && (req.opcode.find("store") != string::npos)) {
-                // GPIC STORE: Do Nothing / must be issued at the head of the rob
+                // MVE STORE: Do Nothing / must be issued at the head of the rob
                 hint("failed to send @%d %s because store must be at the head of ROB\n", get_location(location), req.c_str());
                 return false;
             } else if ((req.addr != -1) && ((req.opcode.find("load") != string::npos) || (req.opcode.find("dict") != string::npos))) {
-                // GPIC LOAD: Find older stores
+                // MVE LOAD: Find older stores
                 bool older_store = false;
                 if (req.opcode.find("loadr") != string::npos) {
                     // If it's a random load, check with all older stores
@@ -1091,12 +1091,12 @@ bool Window::check_send(Request &req, int location) {
                 }
                 if (older_store == true) {
                     // Do Nothing
-                    hint("failed to send @%d %s because of older CPU/GPIC store\n", get_location(location), req.c_str());
+                    hint("failed to send @%d %s because of older CPU/MVE store\n", get_location(location), req.c_str());
                     return false;
                 } else {
                     // Send it
                     hint("3- CORE sending %s to cache\n", req.c_str());
-                    if (!core->gpic_send(req)) {
+                    if (!core->MVE_send(req)) {
                         retry_list.push_back(req);
                     } else {
                         op_trace << core->clk << " core controller " << req.opcode << " " << req.dst << endl;
@@ -1104,10 +1104,10 @@ bool Window::check_send(Request &req, int location) {
                     return true;
                 }
             } else {
-                // GPIC COMPUTATIONAL
+                // MVE COMPUTATIONAL
                 // Send it
                 hint("4- CORE sending %s to cache\n", req.c_str());
-                if (!core->gpic_send(req)) {
+                if (!core->MVE_send(req)) {
                     retry_list.push_back(req);
                 } else {
                     op_trace << core->clk << " core controller " << req.opcode << " " << req.dst << endl;
@@ -1125,10 +1125,10 @@ bool Window::check_send(Request &req, int location) {
         // CPU LOAD: Find older stores
         Request::Type type;
         assert((req.addr_starts.size() == 1) && (req.addr_ends.size() == 1) && (req.addr_starts[0] == req.addr));
-        if (find_older_gpic_random_stores(location)) {
-            // There is a random GPIC store
+        if (find_older_MVE_random_stores(location)) {
+            // There is a random MVE store
             // Do Nothing
-            hint("failed to send @%d %s because of any older GPIC random store\n", get_location(location), req.c_str());
+            hint("failed to send @%d %s because of any older MVE random store\n", get_location(location), req.c_str());
             return false;
         } else if (find_older_stores(req.addr, req.addr_end, type, location)) {
             if (type == Request::Type::WRITE) {
@@ -1138,9 +1138,9 @@ bool Window::check_send(Request &req, int location) {
                 sent_list.at(location) = true;
                 return true;
             } else {
-                // It's a strided GPIC store
+                // It's a strided MVE store
                 // Do Nothing
-                hint("failed to send @%d %s because of the same older GPIC store\n", get_location(location), req.c_str());
+                hint("failed to send @%d %s because of the same older MVE store\n", get_location(location), req.c_str());
                 return false;
             }
         } else {
@@ -1172,7 +1172,7 @@ void Window::insert(Request &req) {
     // addr_list.at(head) = req.addr;
 
     if (req.type != Request::Type::MAX) {
-#if ISA_TYPE != RISCV_ISA
+#if ISA_TYPE != RVV_ISA
         if (check_send(req, head)) {
             sent_list.at(head) = true;
         } else {
@@ -1194,8 +1194,8 @@ long Window::tick() {
 
     while (retry_list.size()) {
         hint("6- CORE sending %s to cache\n", retry_list.at(0).c_str());
-        if (retry_list.at(0).type == Request::Type::GPIC) {
-            if (core->gpic_send(retry_list.at(0))) {
+        if (retry_list.at(0).type == Request::Type::MVE) {
+            if (core->MVE_send(retry_list.at(0))) {
                 op_trace << core->clk << " core controller " << retry_list.at(0).opcode << " ";
                 if (retry_list.at(0).dst != -1) {
                     op_trace << retry_list.at(0).dst;
@@ -1220,7 +1220,6 @@ long Window::tick() {
     }
 
     if (load == 0) {
-        // hint("returned for zero load\n");
         return 0;
     }
 
@@ -1231,8 +1230,8 @@ long Window::tick() {
             // Send it
             Request req = req_list.at(tail);
             hint("7- CORE sending %s to cache\n", req.c_str());
-            if (req.type == Request::Type::GPIC) {
-                if (!core->gpic_send(req)) {
+            if (req.type == Request::Type::MVE) {
+                if (!core->MVE_send(req)) {
                     retry_list.push_back(req);
                 } else {
                     op_trace << core->clk << " core controller " << req.opcode << " ";
@@ -1270,17 +1269,10 @@ long Window::tick() {
 #elif (EXE_TYPE == OUTORDER_EXE)
         // add physical registers to free list
         if (req_list.at(tail).dst != -1) {
-            // allocated_pr += req_list.at(tail).data_type;
-            // if (allocated_pr > 176) {
-            //     hint("Enough VR allocated, start freeing PRs.\n");
-            //     all_vr_allocated = true;
-            // }
-            // if (all_vr_allocated) {
             assert((req_list.at(tail).data_type != 0) && (req_list.at(tail).data_type % 8 == 0));
             core->free_pr += req_list.at(tail).data_type;
             assert(core->free_pr <= 256);
             hint("%ld registers freed\n", req_list.at(tail).data_type);
-            // }
         }
 #endif
         // remove all data from tail
@@ -1333,7 +1325,7 @@ void Window::reset_state() {
 }
 
 void Window::set_ready(Request req) {
-    assert(req.type == Request::Type::GPIC);
+    assert(req.type == Request::Type::MVE);
 
     if (load == 0)
         return;
@@ -1372,7 +1364,7 @@ const char *req_type_names[] = {"READ",
                                 "POWERDOWN",
                                 "SELFREFRESH",
                                 "EXTENSION",
-                                "GPIC",
+                                "MVE",
                                 "FREE",
                                 "INITIALIZED",
                                 "EVICT_DIRTY",
@@ -1425,7 +1417,7 @@ std::string get_remove_first_word(std::string &line) {
     return first_word;
 }
 
-bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type) { //, int &req_vid, int &req_vid_dst) {
+bool Trace::get_MVE_request(long &bubble_cnt, std::string &req_opcode, long &req_dst, long &req_src1, long &req_src2, long &req_dim, long &req_value, long &req_addr, std::vector<long> &req_addr_starts, std::vector<long> &req_stride, Request::Type &req_type) { //, int &req_vid, int &req_vid_dst) {
     string line;
     bubble_cnt = -1;
     req_opcode = -1;
@@ -1501,14 +1493,14 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
         req_type = Request::Type::WRITE;
         req_addr = std::stoul(get_remove_first_word(line), nullptr, 16);
     } else {
-        req_type = Request::Type::GPIC;
+        req_type = Request::Type::MVE;
         // general arguments
         req_dst = std::stoul(get_remove_first_word(line));
         std::string src1_word = get_remove_first_word(line);
         req_src1 = std::stoul(src1_word);
         req_src2 = std::stoul(get_remove_first_word(line));
 
-        if ((req_opcode.find("pc3_load") != string::npos) || (req_opcode.find("pc3_store") != string::npos) || (req_opcode.find("pc3_dict") != string::npos)) {
+        if ((req_opcode.find("mve_load") != string::npos) || (req_opcode.find("mve_store") != string::npos) || (req_opcode.find("mve_dict") != string::npos)) {
             // memory-related arguments
 
             req_addr = std::stoul(src1_word, nullptr, 16);
@@ -1544,7 +1536,7 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
 #endif
 
     if ((req_opcode.find("loadr") != string::npos) || (req_opcode.find("storer") != string::npos)) {
-        assert(req_type == Request::Type::GPIC);
+        assert(req_type == Request::Type::MVE);
         long req_addr_start;
         while (line.size() != 0) {
             req_addr_start = std::stoul(get_remove_first_word(line), nullptr, 16);
@@ -1552,27 +1544,27 @@ bool Trace::get_gpic_request(long &bubble_cnt, std::string &req_opcode, long &re
         }
     }
 
-    if (req_type == Request::Type::GPIC) {
+    if (req_type == Request::Type::MVE) {
         if (req_dim != -1) {
             // it's a config instr
-            hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, dim: %ld, value: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_dim, req_value, bubble_cnt);
+            hint("get_MVE_request returned type: MVE, opcode: %s, dst: %ld, src1: %ld, src2: %ld, dim: %ld, value: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_dim, req_value, bubble_cnt);
         } else if (req_stride.size() != 0) {
             // it's a load or store instruction
-            hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, stride: [%ld, %ld, %ld, %ld], bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, req_stride[0], req_stride[1], req_stride[2], req_stride[3], bubble_cnt);
+            hint("get_MVE_request returned type: MVE, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, stride: [%ld, %ld, %ld, %ld], bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, req_stride[0], req_stride[1], req_stride[2], req_stride[3], bubble_cnt);
         } else {
             // it's a compute instruction
-            hint("get_gpic_request returned type: GPIC, opcode: %s, dst: %ld, src1: %ld, src2: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, bubble_cnt);
+            hint("get_MVE_request returned type: MVE, opcode: %s, dst: %ld, src1: %ld, src2: %ld, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, bubble_cnt);
         }
 #if (EXE_TYPE == DVI_EXE)
     } else if (req_type == Request::Type::FREE) {
-        hint("get_gpic_request returned type: FREE, opcode: %s\n", req_opcode.c_str());
+        hint("get_MVE_request returned type: FREE, opcode: %s\n", req_opcode.c_str());
 #endif
     } else if (req_type == Request::Type::READ) {
-        hint("get_gpic_request returned type: LOAD, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, bubble_cnt);
+        hint("get_MVE_request returned type: LOAD, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, bubble_cnt);
     } else if (req_type == Request::Type::WRITE) {
-        hint("get_gpic_request returned type: STORE, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, bubble_cnt);
+        hint("get_MVE_request returned type: STORE, opcode: %s, dst: %ld, src1: %ld, src2: %ld, address: 0x%lx, bubble: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2, req_addr, bubble_cnt);
     } else if (req_type == Request::Type::INITIALIZED) {
-        hint("get_gpic_request type: INITIALIZED returned opcode: %s, dst: %ld, src1: %ld, src2: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2);
+        hint("get_MVE_request type: INITIALIZED returned opcode: %s, dst: %ld, src1: %ld, src2: %ld\n", req_opcode.c_str(), req_dst, req_src1, req_src2);
     } else {
         assert(false);
     }

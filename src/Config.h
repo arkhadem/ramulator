@@ -18,26 +18,30 @@
 #define EXE_TYPE INORDER_EXE
 #endif
 
-#define RISCV_ISA 0
-#define LIME_ISA 1
+// ISA types
+#define RVV_ISA 0
+#define MVE_ISA 1
 
 #ifndef ISA_TYPE
-#define ISA_TYPE LIME_ISA
+#define ISA_TYPE MVE_ISA
 #endif
 
 #define MAX_CORE_ID 16
-#define MAX_GPIC_SA_NUM 64
+// Number of 8KB 256x256 SRAM Arrays (SA)
+#define MAX_MVE_SA_NUM 64
 
 #ifndef LANES_PER_CB
+// Number of SIMD lanes per Control Block (CB = 4 SAs)
 #define LANES_PER_CB 1024
 #endif
 
 #ifndef LANES_PER_SA
+// Number of SIMD lanes per SA
 #define LANES_PER_SA 256
 #endif
 
 #ifndef LATENCY_FILE_NAME
-#define LATENCY_FILE_NAME "gpic_intrinsics_latency"
+#define LATENCY_FILE_NAME "bs_intrinsics_latency"
 #endif
 
 // #define DEBUG
@@ -67,7 +71,7 @@ struct cache_config_t {
 
 struct core_config_t {
     int ipc;
-    int gpic_SA_num;
+    int MVE_SA_num;
     bool out_of_order;
     cache_config_t l1_cache_config;
     cache_config_t l2_cache_config;
@@ -88,7 +92,7 @@ private:
     long expected_limit_insts = 0;
     bool warmup = false;
     long warmup_insts = 0;
-    int gpic_level = 1;
+    int MVE_level = 1;
     std::vector<core_type_t> core_types;
 
 public:
@@ -145,7 +149,7 @@ public:
     core_type_t get_core_type(int _core_num) const { return core_types[_core_num]; }
     long get_expected_limit_insts() const { return expected_limit_insts; }
     long get_warmup_insts() const { return warmup_insts; }
-    int get_gpic_level() const { return gpic_level; }
+    int get_MVE_level() const { return MVE_level; }
 
     bool has_l3_cache() const {
         if (options.find("cache") != options.end()) {
@@ -196,9 +200,9 @@ public:
         }
         return false;
     }
-    bool is_gpic() const {
+    bool is_MVE() const {
         // the default value is false
-        if ((options.find("trace_type"))->second == "GPIC") {
+        if ((options.find("trace_type"))->second == "MVE") {
             return true;
         }
         return false;

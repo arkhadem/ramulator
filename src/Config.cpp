@@ -3,13 +3,11 @@
 using namespace std;
 using namespace ramulator;
 
-Config::Config(const std::string& fname)
-{
+Config::Config(const std::string &fname) {
     parse(fname);
 }
 
-void Config::parse(const string& fname)
-{
+void Config::parse(const string &fname) {
     ifstream file(fname);
     assert(file.good() && "Bad config file");
     string line;
@@ -59,9 +57,9 @@ void Config::parse(const string& fname)
             expected_limit_insts = atoi(tokens[1].c_str());
         } else if (tokens[0] == "warmup_insts") {
             warmup_insts = atoi(tokens[1].c_str());
-        } else if (tokens[0] == "gpic_level") {
-            gpic_level = atoi(tokens[1].c_str());
-            std::cout << "GPIC LEVEL: " << gpic_level << endl;
+        } else if (tokens[0] == "MVE_level") {
+            MVE_level = atoi(tokens[1].c_str());
+            std::cout << "MVE LEVEL: " << MVE_level << endl;
         }
     }
     file.close();

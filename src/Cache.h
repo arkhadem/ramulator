@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-#define MAX_GPIC_QUEUE_SIZE 32
+#define MAX_MVE_QUEUE_SIZE 32
 
 namespace ramulator {
 class CacheSystem;
@@ -33,7 +33,7 @@ extern int l3_assoc;
 extern int l3_blocksz;
 extern int mshr_per_bank;
 extern float l3_access_energy;
-extern int l3_gpic_SA_num;
+extern int l3_MVE_SA_num;
 
 class Cache {
 protected:
@@ -49,21 +49,21 @@ protected:
     ScalarStat cache_set_unavailable;
     ScalarStat cache_access_energy;
 
-    ScalarStat *GPIC_compute_energy;
-    ScalarStat *GPIC_compute_comp_energy;
-    ScalarStat *GPIC_compute_rdwr_energy;
-    ScalarStat GPIC_compute_total_energy;
-    ScalarStat GPIC_compute_comp_total_energy;
-    ScalarStat GPIC_compute_rdwr_total_energy;
+    ScalarStat *MVE_compute_energy;
+    ScalarStat *MVE_compute_comp_energy;
+    ScalarStat *MVE_compute_rdwr_energy;
+    ScalarStat MVE_compute_total_energy;
+    ScalarStat MVE_compute_comp_total_energy;
+    ScalarStat MVE_compute_rdwr_total_energy;
 
-    ScalarStat GPIC_host_device_total_cycles;
-    ScalarStat GPIC_move_stall_total_cycles;
-    ScalarStat GPIC_compute_total_cycles;
-    ScalarStat GPIC_memory_total_cycles;
-    ScalarStat *GPIC_host_device_cycles;
-    ScalarStat *GPIC_move_stall_cycles;
-    ScalarStat *GPIC_compute_cycles;
-    ScalarStat *GPIC_memory_cycles;
+    ScalarStat MVE_host_device_total_cycles;
+    ScalarStat MVE_move_stall_total_cycles;
+    ScalarStat MVE_compute_total_cycles;
+    ScalarStat MVE_memory_total_cycles;
+    ScalarStat *MVE_host_device_cycles;
+    ScalarStat *MVE_move_stall_cycles;
+    ScalarStat *MVE_compute_cycles;
+    ScalarStat *MVE_memory_cycles;
 
 public:
     enum class Level {
@@ -89,7 +89,7 @@ public:
     };
 
     Cache(int size, int assoc, int block_size, int mshr_entry_num, float access_energy,
-          Level level, std::shared_ptr<CacheSystem> cachesys, int gpic_CB_num, int core_id = -1);
+          Level level, std::shared_ptr<CacheSystem> cachesys, int MVE_CB_num, int core_id = -1);
 
     void tick();
     void reset_state();
@@ -116,7 +116,7 @@ public:
 
     bool check_full_queue(Request req);
 
-    bool memory_controller(Request req);
+    bool MVE_controller(Request req);
 
     void instrinsic_decoder(Request req);
 
@@ -158,7 +158,8 @@ protected:
     unsigned int mshr_entry_num;
     float access_energy;
     long last_id = 0;
-    int gpic_CB_num;
+    // Number of MVE Controller Blocks (CB)
+    int MVE_CB_num;
     bool receive_locked = false;
     bool crossbar_locked = false;
 
@@ -170,34 +171,53 @@ protected:
 
     std::map<int, std::vector<std::shared_ptr<Line>>> cache_lines;
 
-    std::map<std::string, long> GPIC_COMPUTE_DELAY;
-    std::map<std::string, long> GPIC_ACCESS_DELAY;
+    // In-cache compute and data access delays
+    // Taken from the CSV files in data directory
+    std::map<std::string, long> MVE_COMPUTE_DELAY;
+    std::map<std::string, long> MVE_ACCESS_DELAY;
 
     void init_intrinsic_latency();
 
-    std::map<Request, std::vector<std::pair<Request, bool>>> gpic_op_to_mem_ops[MAX_GPIC_SA_NUM];
-    std::map<Request, std::vector<long>> gpic_random_dict_to_mem_ops;
-    std::vector<std::pair<long, Request>> gpic_incoming_req_queue;
-    std::vector<std::pair<long, Request>> gpic_compute_queue[MAX_GPIC_SA_NUM];
-    long last_gpic_instruction_compute_clk[MAX_GPIC_SA_NUM];
-    bool last_gpic_instruction_computed[MAX_GPIC_SA_NUM];
-    bool last_gpic_instruction_sent[MAX_GPIC_SA_NUM];
-    std::map<Request, int> gpic_vop_to_num_sop;
+    // Map of MVE instructions to memory operations
+    std::map<Request, std::vector<std::pair<Request, bool>>> MVE_op_to_mem_ops[MAX_MVE_SA_NUM];
+    std::map<Request, std::vector<long>> MVE_random_dict_to_mem_ops;
+    std::vector<std::pair<long, Request>> MVE_incoming_req_queue;
+    std::vector<std::pair<long, Request>> MVE_compute_queue[MAX_MVE_SA_NUM];
+    long last_MVE_instruction_compute_clk[MAX_MVE_SA_NUM];
+    bool last_MVE_instruction_computed[MAX_MVE_SA_NUM];
+    bool last_MVE_instruction_sent[MAX_MVE_SA_NUM];
+    std::map<Request, int> MVE_vop_to_num_sop;
 
+    // Vector length for 4 dimensions
     long VL_reg[4];
+
+    // Vector count register = VL_reg[1] * VL_reg[2] * VL_reg[3]
     long VC_reg = 1;
+
+    // Dimension count register
     long DC_reg = 1;
+
+    // Vector mask register for each element of each dimension
     bool *VM_reg[4];
+
+    // Load stride register for each dimension
     long LS_reg[4] = {0, 0, 0, 0};
+
+    // Store stride register for each dimension
     long SS_reg[4] = {0, 0, 0, 0};
-#if ISA_TYPE == RISCV_ISA
-    bool V_masked[MAX_GPIC_SA_NUM * LANES_PER_SA];
+
+#if ISA_TYPE == RVV_ISA
+    // If a vector lane is masked
+    bool V_masked[MAX_MVE_SA_NUM * LANES_PER_SA];
 #else
-    bool CB_masked[MAX_GPIC_SA_NUM * LANES_PER_SA];
+    // If a control block is masked
+    bool CB_masked[MAX_MVE_SA_NUM * LANES_PER_SA];
 #endif
 
+    // Number of vectors per control block
     int V_PER_CB = 1;
-    int CB_PER_V = MAX_GPIC_SA_NUM;
+    // Number of control blocks per vector
+    int CB_PER_V = MAX_MVE_SA_NUM;
 
     int calc_log2(int val) {
         int n = 0;

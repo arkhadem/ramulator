@@ -19,8 +19,8 @@ namespace ramulator {
 
 Cache::Cache(int size, int assoc, int block_size,
              int mshr_entry_num, float access_energy, Level level,
-             std::shared_ptr<CacheSystem> cachesys, int gpic_CB_num, int core_id)
-    : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), gpic_CB_num(gpic_CB_num) {
+             std::shared_ptr<CacheSystem> cachesys, int MVE_CB_num, int core_id)
+    : level(level), cachesys(cachesys), higher_cache(0), lower_cache(nullptr), core_id(core_id), size(size), assoc(assoc), block_size(block_size), mshr_entry_num(mshr_entry_num), access_energy(access_energy), MVE_CB_num(MVE_CB_num) {
 
     debug("level %d size %d assoc %d block_size %d\n",
           int(level), size, assoc, block_size);
@@ -48,20 +48,20 @@ Cache::Cache(int size, int assoc, int block_size,
     index_offset = calc_log2(block_size);
     tag_offset = calc_log2(block_num) + index_offset;
 
-    for (int i = 0; i < gpic_CB_num; i++) {
-        last_gpic_instruction_compute_clk[i] = -1;
-        last_gpic_instruction_computed[i] = false;
-        last_gpic_instruction_sent[i] = false;
+    for (int i = 0; i < MVE_CB_num; i++) {
+        last_MVE_instruction_compute_clk[i] = -1;
+        last_MVE_instruction_computed[i] = false;
+        last_MVE_instruction_sent[i] = false;
     }
 
-    CB_PER_V = gpic_CB_num;
+    CB_PER_V = MVE_CB_num;
     DC_reg = 1;
-    VL_reg[0] = gpic_CB_num * 256;
+    VL_reg[0] = MVE_CB_num * 256;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = vector<bool>(gpic_CB_num * 256);
+    VM_reg[0] = vector<bool>(MVE_CB_num * 256);
     fill(VM_reg[0].begin(), VM_reg[0].end(), true);
     VM_reg[1] = vector<bool>(1);
     VM_reg[1][0] = true;
@@ -118,55 +118,55 @@ Cache::Cache(int size, int assoc, int block_size,
         .desc("cache access energy in pJ")
         .precision(0);
 
-    GPIC_host_device_total_cycles.name(level_string + string("_GPIC_host_device_total_cycles"))
-        .desc("total cycles at which cache GPIC instruction queue is empty")
+    MVE_host_device_total_cycles.name(level_string + string("_MVE_host_device_total_cycles"))
+        .desc("total cycles at which cache MVE instruction queue is empty")
         .precision(0);
-    GPIC_move_stall_total_cycles.name(level_string + string("_GPIC_move_stall_total_cycles"))
-        .desc("total cycles at which cache GPIC is stalled because of move instructions")
+    MVE_move_stall_total_cycles.name(level_string + string("_MVE_move_stall_total_cycles"))
+        .desc("total cycles at which cache MVE is stalled because of move instructions")
         .precision(0);
-    GPIC_compute_total_cycles.name(level_string + string("_GPIC_compute_total_cycles"))
-        .desc("total cycles at which cache GPIC doing computation or W/R")
+    MVE_compute_total_cycles.name(level_string + string("_MVE_compute_total_cycles"))
+        .desc("total cycles at which cache MVE doing computation or W/R")
         .precision(0);
-    GPIC_memory_total_cycles.name(level_string + string("_GPIC_memory_total_cycles"))
-        .desc("total cycles at which cache GPIC waiting for mem requests")
+    MVE_memory_total_cycles.name(level_string + string("_MVE_memory_total_cycles"))
+        .desc("total cycles at which cache MVE waiting for mem requests")
         .precision(0);
 
-    GPIC_host_device_cycles = new ScalarStat[gpic_CB_num];
-    GPIC_move_stall_cycles = new ScalarStat[gpic_CB_num];
-    GPIC_compute_cycles = new ScalarStat[gpic_CB_num];
-    GPIC_memory_cycles = new ScalarStat[gpic_CB_num];
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
-        GPIC_host_device_cycles[sid].name(level_string + string("_GPIC_host_device_cycles[") + to_string(sid) + string("]")).desc("cache GPIC instruction queue is empty").precision(0);
-        GPIC_move_stall_cycles[sid].name(level_string + string("_GPIC_move_stall_cycles[") + to_string(sid) + string("]")).desc("cache GPIC is stalled for move instruction").precision(0);
-        GPIC_compute_cycles[sid].name(level_string + string("_GPIC_compute_cycles[") + to_string(sid) + string("]")).desc("cache GPIC doing computation or W/R").precision(0);
-        GPIC_memory_cycles[sid].name(level_string + string("_GPIC_memory_cycles[") + to_string(sid) + string("]")).desc("cache GPIC waiting for mem requests").precision(0);
+    MVE_host_device_cycles = new ScalarStat[MVE_CB_num];
+    MVE_move_stall_cycles = new ScalarStat[MVE_CB_num];
+    MVE_compute_cycles = new ScalarStat[MVE_CB_num];
+    MVE_memory_cycles = new ScalarStat[MVE_CB_num];
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
+        MVE_host_device_cycles[sid].name(level_string + string("_MVE_host_device_cycles[") + to_string(sid) + string("]")).desc("cache MVE instruction queue is empty").precision(0);
+        MVE_move_stall_cycles[sid].name(level_string + string("_MVE_move_stall_cycles[") + to_string(sid) + string("]")).desc("cache MVE is stalled for move instruction").precision(0);
+        MVE_compute_cycles[sid].name(level_string + string("_MVE_compute_cycles[") + to_string(sid) + string("]")).desc("cache MVE doing computation or W/R").precision(0);
+        MVE_memory_cycles[sid].name(level_string + string("_MVE_memory_cycles[") + to_string(sid) + string("]")).desc("cache MVE waiting for mem requests").precision(0);
     }
 
-    GPIC_compute_total_energy.name(level_string + string("_GPIC_compute_total_energy"))
-        .desc("total cache GPIC compute energy in pJ")
+    MVE_compute_total_energy.name(level_string + string("_MVE_compute_total_energy"))
+        .desc("total cache MVE compute energy in pJ")
         .precision(0);
-    GPIC_compute_comp_total_energy.name(level_string + string("_GPIC_compute_comp_total_energy"))
-        .desc("total cache GPIC compute energy [compute part] in pJ")
+    MVE_compute_comp_total_energy.name(level_string + string("_MVE_compute_comp_total_energy"))
+        .desc("total cache MVE compute energy [compute part] in pJ")
         .precision(0);
-    GPIC_compute_rdwr_total_energy.name(level_string + string("_GPIC_compute_rdwr_total_energy"))
-        .desc("total cache GPIC compute energy [read/write part] in pJ")
+    MVE_compute_rdwr_total_energy.name(level_string + string("_MVE_compute_rdwr_total_energy"))
+        .desc("total cache MVE compute energy [read/write part] in pJ")
         .precision(0);
 
-    GPIC_compute_energy = new ScalarStat[gpic_CB_num];
-    GPIC_compute_comp_energy = new ScalarStat[gpic_CB_num];
-    GPIC_compute_rdwr_energy = new ScalarStat[gpic_CB_num];
+    MVE_compute_energy = new ScalarStat[MVE_CB_num];
+    MVE_compute_comp_energy = new ScalarStat[MVE_CB_num];
+    MVE_compute_rdwr_energy = new ScalarStat[MVE_CB_num];
 
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
-        GPIC_compute_energy[sid].name(level_string + string("_GPIC_compute_energy[") + to_string(sid) + string("]")).desc("cache GPIC compute energy in pJ").precision(0);
-        GPIC_compute_comp_energy[sid].name(level_string + string("_GPIC_compute_comp_energy[") + to_string(sid) + string("]")).desc("cache GPIC compute energy [compute part] in pJ").precision(0);
-        GPIC_compute_rdwr_energy[sid].name(level_string + string("_GPIC_compute_rdwr_energy[") + to_string(sid) + string("]")).desc("cache GPIC compute energy [read/write part] in pJ").precision(0);
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
+        MVE_compute_energy[sid].name(level_string + string("_MVE_compute_energy[") + to_string(sid) + string("]")).desc("cache MVE compute energy in pJ").precision(0);
+        MVE_compute_comp_energy[sid].name(level_string + string("_MVE_compute_comp_energy[") + to_string(sid) + string("]")).desc("cache MVE compute energy [compute part] in pJ").precision(0);
+        MVE_compute_rdwr_energy[sid].name(level_string + string("_MVE_compute_rdwr_energy[") + to_string(sid) + string("]")).desc("cache MVE compute energy [read/write part] in pJ").precision(0);
     }
 }
 
 void Cache::init_intrinsic_latency() {
     std::string line, intrinsic, rd_wr_latency, compute_latency;
 
-    fstream file("/home/arkhadem/GPIC/ramulator/data/gpic_intrinsics_latency.csv", ios::in);
+    fstream file("/home/arkhadem/MVE/ramulator/data/MVE_intrinsics_latency.csv", ios::in);
     if (file.is_open()) {
 
         // reading and ignoring header file
@@ -181,15 +181,15 @@ void Cache::init_intrinsic_latency() {
             std::getline(str, rd_wr_latency, ',');
             std::getline(str, compute_latency, ',');
 
-            GPIC_ACCESS_DELAY[intrinsic.c_str()] = atoi(rd_wr_latency.c_str());
-            GPIC_COMPUTE_DELAY[intrinsic.c_str()] = atoi(compute_latency.c_str());
+            MVE_ACCESS_DELAY[intrinsic.c_str()] = atoi(rd_wr_latency.c_str());
+            MVE_COMPUTE_DELAY[intrinsic.c_str()] = atoi(compute_latency.c_str());
         }
     } else {
-        printf("Error: could not find /home/arkhadem/GPIC/ramulator/data/gpic_intrinsics_latency.csv\n");
+        printf("Error: could not find /home/arkhadem/MVE/ramulator/data/MVE_intrinsics_latency.csv\n");
     }
     file.close();
 
-    file.open("/home/arkhadem/GPIC/ramulator/data/dc_intrinsics_latency.csv", ios::in);
+    file.open("/home/arkhadem/MVE/ramulator/data/dc_intrinsics_latency.csv", ios::in);
     if (file.is_open()) {
 
         // reading and ignoring header file
@@ -208,7 +208,7 @@ void Cache::init_intrinsic_latency() {
             DC_COMPUTE_DELAY[intrinsic.c_str()] = atoi(compute_latency.c_str());
         }
     } else {
-        printf("Error: could not find /home/arkhadem/GPIC/ramulator/data/dc_intrinsics_latency.csv\n");
+        printf("Error: could not find /home/arkhadem/MVE/ramulator/data/dc_intrinsics_latency.csv\n");
     }
     file.close();
 }
@@ -226,14 +226,14 @@ bool Cache::check_full_queue(Request req) {
     // assert(req.opcode.find("move") == string::npos);
     for (int vid = 0; vid < VC_reg; vid += V_PER_CB) {
         for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
-            if (gpic_instruction_queue[vid_to_sid(vid, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
+            if (MVE_instruction_queue[vid_to_sid(vid, sid_offset)].size() >= MAX_MVE_QUEUE_SIZE) {
                 return false;
             }
         }
     }
     // } else {
     //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
-    //         if (gpic_instruction_queue[vid_to_sid(req.vid, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
+    //         if (MVE_instruction_queue[vid_to_sid(req.vid, sid_offset)].size() >= MAX_MVE_QUEUE_SIZE) {
     //             return false;
     //         }
     //     }
@@ -241,7 +241,7 @@ bool Cache::check_full_queue(Request req) {
 
     // if (req.opcode.find("move") != string::npos) {
     //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
-    //         if (gpic_instruction_queue[vid_to_sid(req.vid_dst, sid_offset)].size() >= MAX_GPIC_QUEUE_SIZE) {
+    //         if (MVE_instruction_queue[vid_to_sid(req.vid_dst, sid_offset)].size() >= MAX_MVE_QUEUE_SIZE) {
     //             return false;
     //         }
     //     }
@@ -285,23 +285,23 @@ bool Cache::vector_masked(int vid) {
 
 void Cache::instrinsic_decoder(Request req) {
 
-    assert(gpic_vop_to_num_sop.count(req) == 0);
+    assert(MVE_vop_to_num_sop.count(req) == 0);
 
     // if (req.opcode.find("move") != string::npos) {
     //     // move cannot have vid = -1
     //     assert(req.vid >= 0);
-    //     gpic_vop_to_num_sop[req] = CB_PER_V;
+    //     MVE_vop_to_num_sop[req] = CB_PER_V;
     //     if ((req.vid / V_PER_CB) != (req.vid_dst / V_PER_CB)) {
-    //         gpic_vop_to_num_sop[req] *= 2;
+    //         MVE_vop_to_num_sop[req] *= 2;
     //     }
     //     // For each SA of the vector
     //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
     //         req.sid = vid_to_sid(req.vid, sid_offset);
     //         req.sid_dst = vid_to_sid(req.vid_dst, sid_offset);
     //         hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
-    //         gpic_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
+    //         MVE_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
     //         if (req.sid != req.sid_dst) {
-    //             gpic_instruction_queue[req.sid_dst].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
+    //             MVE_instruction_queue[req.sid_dst].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
     //         }
     //     }
     // } else
@@ -316,8 +316,8 @@ void Cache::instrinsic_decoder(Request req) {
         int stride = stride_evaluator(req.stride, (req.opcode.find("load") != string::npos));
 
         // if (req.vid == -1) {
-        gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_CB) + 1;
-        gpic_vop_to_num_sop[req] *= CB_PER_V;
+        MVE_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_CB) + 1;
+        MVE_vop_to_num_sop[req] *= CB_PER_V;
 
         // For each vector
         for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_CB) {
@@ -360,25 +360,25 @@ void Cache::instrinsic_decoder(Request req) {
 
                 if (req.addr_starts.size() == 0) {
                     // All vectors of this SRAM array are masked
-                    gpic_vop_to_num_sop[req]--;
+                    MVE_vop_to_num_sop[req]--;
                     continue;
                 }
 
                 // Schedule the instruction
                 hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
-                gpic_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
+                MVE_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
             }
 
-            assert(gpic_vop_to_num_sop[req] >= 0);
+            assert(MVE_vop_to_num_sop[req] >= 0);
 
-            if (gpic_vop_to_num_sop[req] == 0) {
+            if (MVE_vop_to_num_sop[req] == 0) {
                 hint("20- Calling back %s to core\n", req.c_str());
                 req.callback(req);
             }
         }
         // } else {
         //     assert((addr_starts.size() == 1) && (addr_ends.size() == 1));
-        //     gpic_vop_to_num_sop[req] = CB_PER_V;
+        //     MVE_vop_to_num_sop[req] = CB_PER_V;
 
         //     // For each SA of the vector
         //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
@@ -397,13 +397,13 @@ void Cache::instrinsic_decoder(Request req) {
 
         //         // Schedule the instruction
         //         hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
-        //         gpic_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
+        //         MVE_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
         //     }
         // }
     } else {
         // if (req.vid == -1) {
-        gpic_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_CB) + 1;
-        gpic_vop_to_num_sop[req] *= CB_PER_V;
+        MVE_vop_to_num_sop[req] = ((VC_reg - 1) / V_PER_CB) + 1;
+        MVE_vop_to_num_sop[req] *= CB_PER_V;
 
         // For each vector
         for (int vid_base = 0; vid_base < VC_reg; vid_base += V_PER_CB) {
@@ -429,28 +429,28 @@ void Cache::instrinsic_decoder(Request req) {
 
                 if (SA_mased) {
                     // All vectors of this SRAM array are masked
-                    gpic_vop_to_num_sop[req]--;
+                    MVE_vop_to_num_sop[req]--;
                     continue;
                 }
 
                 // Schedule the instruction
                 hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
-                gpic_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
+                MVE_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
             }
         }
 
-        if (gpic_vop_to_num_sop[req] == 0) {
+        if (MVE_vop_to_num_sop[req] == 0) {
             hint("21- Calling back %s to core\n", req.c_str());
             req.callback(req);
         }
         // } else {
-        //     gpic_vop_to_num_sop[req] = CB_PER_V;
+        //     MVE_vop_to_num_sop[req] = CB_PER_V;
         //     // For each SA of the vector
         //     for (int sid_offset = 0; sid_offset < CB_PER_V; sid_offset++) {
         //         req.sid = vid_to_sid(req.vid, sid_offset);
         //         // Schedule the instruction
         //         hint("%s set for start in %d clock cycles\n", req.c_str(), latency_each[int(level)]);
-        //         gpic_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
+        //         MVE_instruction_queue[req.sid].push_back(make_pair(cachesys->clk + latency_each[int(level)], req));
         //     }
         // }
     }
@@ -458,8 +458,8 @@ void Cache::instrinsic_decoder(Request req) {
 
 void Cache::random_access_decoder(Request req) {
     // Accessing memory to load random load/store addresses
-    assert(gpic_random_to_mem_ops.count(req) == 0);
-    gpic_random_to_mem_ops[req] = std::vector<long>();
+    assert(MVE_random_to_mem_ops.count(req) == 0);
+    MVE_random_to_mem_ops[req] = std::vector<long>();
     long lower_cache_line = align(req.addr);
     long upper_cache_line = align(req.addr + (VL_reg[DC_reg - 1] * 8) - 1);
     int access_needed = (long)(std::ceil((float)(upper_cache_line - lower_cache_line) / (float)(block_size))) + 1;
@@ -471,7 +471,7 @@ void Cache::random_access_decoder(Request req) {
         Request mem_req(req_addr, req_type, processor_callback, req_coreid, req_unitid);
         mem_req.reqid = last_id;
         last_id++;
-        gpic_random_to_mem_ops[req].push_back(req_addr);
+        MVE_random_to_mem_ops[req].push_back(req_addr);
         req_addr += block_size;
 
         // send it
@@ -482,9 +482,9 @@ void Cache::random_access_decoder(Request req) {
     }
 }
 
-bool Cache::memory_controller(Request req) {
+bool Cache::MVE_controller(Request req) {
     if (req.opcode.find("_set_") != string::npos) {
-        // it's a config GPIC instruction
+        // it's a config MVE instruction
 
         if (req.opcode.find("stride") != string::npos) {
             assert(req.dim < DC_reg);
@@ -499,8 +499,8 @@ bool Cache::memory_controller(Request req) {
             if (req.opcode.find("length") != string::npos) {
                 assert(req.dim < DC_reg);
                 VL_reg[req.dim] = req.value;
-                if (VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3] > (256 * gpic_CB_num)) {
-                    printf("Error: VL_reg[0](%ld) * VL_reg[1](%ld) * VL_reg[2](%ld) * VL_reg[3](%ld) > (256 * gpic_CB_num(%d))", VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], gpic_CB_num);
+                if (VL_reg[0] * VL_reg[1] * VL_reg[2] * VL_reg[3] > (256 * MVE_CB_num)) {
+                    printf("Error: VL_reg[0](%ld) * VL_reg[1](%ld) * VL_reg[2](%ld) * VL_reg[3](%ld) > (256 * MVE_CB_num(%d))", VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], MVE_CB_num);
                     exit(-1);
                 }
                 VC_reg = VL_reg[1] * VL_reg[2] * VL_reg[3];
@@ -547,8 +547,8 @@ bool Cache::memory_controller(Request req) {
         hint("DC_reg: %ld, LS_reg: [%ld, %ld, %ld, %ld], SS_reg: [%ld, %ld, %ld, %ld], VL_reg: [%ld, %ld, %ld, %ld], VC_reg: %ld, V_PER_CB: %d, CB_PER_V: %d\n", DC_reg, LS_reg[0], LS_reg[1], LS_reg[2], LS_reg[3], SS_reg[0], SS_reg[1], SS_reg[2], SS_reg[3], VL_reg[0], VL_reg[1], VL_reg[2], VL_reg[3], VC_reg, V_PER_CB, CB_PER_V);
     } else {
 
-        if (((((VC_reg * CB_PER_V) + 1) / V_PER_CB) - 1) > gpic_CB_num) {
-            printf("Error: ((((VC_reg(%ld) * CB_PER_V(%d)) + 1) / V_PER_CB(%d)) - 1) (%ld) > gpic_CB_num(%d)\n", VC_reg, CB_PER_V, V_PER_CB, ((((VC_reg * CB_PER_V) + 1) / V_PER_CB) - 1), gpic_CB_num);
+        if (((((VC_reg * CB_PER_V) + 1) / V_PER_CB) - 1) > MVE_CB_num) {
+            printf("Error: ((((VC_reg(%ld) * CB_PER_V(%d)) + 1) / V_PER_CB(%d)) - 1) (%ld) > MVE_CB_num(%d)\n", VC_reg, CB_PER_V, V_PER_CB, ((((VC_reg * CB_PER_V) + 1) / V_PER_CB) - 1), MVE_CB_num);
             exit(-1);
         }
 
@@ -567,10 +567,10 @@ bool Cache::memory_controller(Request req) {
 }
 
 bool Cache::send(Request req) {
-    if (req.type == Request::Type::GPIC) {
+    if (req.type == Request::Type::MVE) {
         debug("level %s received %s", level_string.c_str(), req.c_str());
 
-        return memory_controller(req);
+        return MVE_controller(req);
     }
     // else if (req.type == Request::Type::EVICT_DIRTY) {
     //     evictline(req.addr, true);
@@ -606,7 +606,7 @@ bool Cache::send(Request req) {
         long invalidate_time = 0;
 
         if (req.unitid == (Request::UnitID)(level)) {
-            // If it is comming from the same level of the cache, it is produced by a gpic intrinsic
+            // If it is comming from the same level of the cache, it is produced by a MVE intrinsic
 
             if (higher_cache.size() != 0) {
                 // Make sure it is not L1
@@ -619,7 +619,7 @@ bool Cache::send(Request req) {
                     dirty = dirty || result.second;
 
                     if (result.second) {
-                        hint("invalidated (%s) from %s due to gpic access\n", req.c_str(), level_string.c_str());
+                        hint("invalidated (%s) from %s due to MVE access\n", req.c_str(), level_string.c_str());
                     }
                 }
             }
@@ -1040,8 +1040,8 @@ void Cache::callback(Request &req) {
     }
 
     // Remove corresponding random load/store addresses
-    auto random_it = gpic_random_to_mem_ops.begin();
-    while (random_it != gpic_random_to_mem_ops.end()) {
+    auto random_it = MVE_random_to_mem_ops.begin();
+    while (random_it != MVE_random_to_mem_ops.end()) {
         auto mem_it = random_it->second.begin();
         while (mem_it != random_it->second.end()) {
             if (align(req.addr) == align(*mem_it)) {
@@ -1056,65 +1056,65 @@ void Cache::callback(Request &req) {
         if (random_it->second.size() == 0) {
             hint("%s: decoding %s\n", level_string.c_str(), random_it->first.c_str());
             instrinsic_decoder(random_it->first);
-            random_it = gpic_random_to_mem_ops.erase(random_it);
+            random_it = MVE_random_to_mem_ops.erase(random_it);
         } else {
             ++random_it;
         }
     }
 
-    // Remove corresponding GPIC instructions
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
+    // Remove corresponding MVE instructions
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
 
         int hit = 0;
 
         // Check if the SA has sent the memory operations
-        if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == true)) {
-            Request gpic_req = gpic_compute_queue[sid][0].second;
+        if ((last_MVE_instruction_computed[sid] == true) && (last_MVE_instruction_sent[sid] == true)) {
+            Request MVE_req = MVE_compute_queue[sid][0].second;
 
             // Check all start-end address pairs
-            for (int gpic_idx = 0; gpic_idx < gpic_req.addr_starts.size(); gpic_idx++) {
+            for (int MVE_idx = 0; MVE_idx < MVE_req.addr_starts.size(); MVE_idx++) {
 
                 // If the address has overlap with the start-end pair
-                if ((align(req.addr) >= align(gpic_req.addr_starts[gpic_idx])) && (align(req.addr) <= align(gpic_req.addr_ends[gpic_idx]))) {
+                if ((align(req.addr) >= align(MVE_req.addr_starts[MVE_idx])) && (align(req.addr) <= align(MVE_req.addr_ends[MVE_idx]))) {
 
-                    // Check if this memory access has been ocurred because of this GPIC instruction
-                    auto iter = gpic_op_to_mem_ops[sid][gpic_req].begin();
-                    while (iter != gpic_op_to_mem_ops[sid][gpic_req].end()) {
+                    // Check if this memory access has been ocurred because of this MVE instruction
+                    auto iter = MVE_op_to_mem_ops[sid][MVE_req].begin();
+                    while (iter != MVE_op_to_mem_ops[sid][MVE_req].end()) {
                         if (iter->second == false) {
                             ++iter;
                             continue;
                         }
                         if (align(req.addr) == align(iter->first.addr)) {
-                            hint("1- %s: %s calls back for %s, %lu instructions remained\n", level_string.c_str(), req.c_str(), gpic_req.c_str(), gpic_op_to_mem_ops[sid][gpic_req].size() - 1);
+                            hint("1- %s: %s calls back for %s, %lu instructions remained\n", level_string.c_str(), req.c_str(), MVE_req.c_str(), MVE_op_to_mem_ops[sid][MVE_req].size() - 1);
                             hit += 1;
-                            // Remove this instruction from gpic list
-                            iter = gpic_op_to_mem_ops[sid][gpic_req].erase(iter);
+                            // Remove this instruction from MVE list
+                            iter = MVE_op_to_mem_ops[sid][MVE_req].erase(iter);
                         } else {
                             ++iter;
                         }
                     }
                 }
             }
-            if (gpic_op_to_mem_ops[sid][gpic_req].size() == 0) {
-                op_trace << cachesys->clk << " " << sid << " F " << gpic_req.opcode << endl;
-                hint("18- %s: calling back %s\n", level_string.c_str(), gpic_req.c_str());
-                callbacker(gpic_req);
-                gpic_op_to_mem_ops[sid].erase(gpic_req);
-                gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
-                last_gpic_instruction_compute_clk[sid] = -1;
-                last_gpic_instruction_computed[sid] = false;
-                last_gpic_instruction_sent[sid] = false;
+            if (MVE_op_to_mem_ops[sid][MVE_req].size() == 0) {
+                op_trace << cachesys->clk << " " << sid << " F " << MVE_req.opcode << endl;
+                hint("18- %s: calling back %s\n", level_string.c_str(), MVE_req.c_str());
+                callbacker(MVE_req);
+                MVE_op_to_mem_ops[sid].erase(MVE_req);
+                MVE_compute_queue[sid].erase(MVE_compute_queue[sid].begin());
+                last_MVE_instruction_compute_clk[sid] = -1;
+                last_MVE_instruction_computed[sid] = false;
+                last_MVE_instruction_sent[sid] = false;
             } else if (hit != 0) {
                 // send the first non-sent addresses
-                for (int mem_idx = 0; mem_idx < gpic_op_to_mem_ops[sid][gpic_req].size(); mem_idx++) {
-                    if (gpic_op_to_mem_ops[sid][gpic_req][mem_idx].second == true)
+                for (int mem_idx = 0; mem_idx < MVE_op_to_mem_ops[sid][MVE_req].size(); mem_idx++) {
+                    if (MVE_op_to_mem_ops[sid][MVE_req][mem_idx].second == true)
                         continue;
-                    hint("15- %s sending %s to %s\n", level_string.c_str(), gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first.c_str(), level_string.c_str());
-                    if (send(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first) == false) {
-                        self_retry_list.push_back(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].first);
+                    hint("15- %s sending %s to %s\n", level_string.c_str(), MVE_op_to_mem_ops[sid][MVE_req][mem_idx].first.c_str(), level_string.c_str());
+                    if (send(MVE_op_to_mem_ops[sid][MVE_req][mem_idx].first) == false) {
+                        self_retry_list.push_back(MVE_op_to_mem_ops[sid][MVE_req][mem_idx].first);
                     }
-                    assert(gpic_op_to_mem_ops[sid][gpic_req][mem_idx].second == false);
-                    gpic_op_to_mem_ops[sid][gpic_req][mem_idx].second = true;
+                    assert(MVE_op_to_mem_ops[sid][MVE_req][mem_idx].second == false);
+                    MVE_op_to_mem_ops[sid][MVE_req][mem_idx].second = true;
                     hit--;
                     if (hit == 0)
                         break;
@@ -1131,10 +1131,10 @@ void Cache::callback(Request &req) {
 }
 
 void Cache::callbacker(Request &req) {
-    assert(gpic_vop_to_num_sop.count(req) == 1);
-    assert(gpic_vop_to_num_sop[req] > 0);
-    gpic_vop_to_num_sop[req] -= 1;
-    if (gpic_vop_to_num_sop[req] == 0) {
+    assert(MVE_vop_to_num_sop.count(req) == 1);
+    assert(MVE_vop_to_num_sop[req] > 0);
+    MVE_vop_to_num_sop[req] -= 1;
+    if (MVE_vop_to_num_sop[req] == 0) {
         hint("19- Calling back %s to core\n", req.c_str());
         req.callback(req);
     }
@@ -1177,10 +1177,10 @@ void Cache::tick() {
         }
     }
 
-    // Instruction received by cache, sent to GPIC core queue
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
-        while ((gpic_instruction_queue[sid].size() > 0) && (cachesys->clk >= gpic_instruction_queue[sid][0].first)) {
-            Request req = gpic_instruction_queue[sid][0].second;
+    // Instruction received by cache, sent to MVE core queue
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
+        while ((MVE_instruction_queue[sid].size() > 0) && (cachesys->clk >= MVE_instruction_queue[sid][0].first)) {
+            Request req = MVE_instruction_queue[sid][0].second;
             long compute_delay, access_delay, bitlines;
             if (req.opcode.find("_dc_") != string::npos) {
                 assert(req.opcode.find("_pc3_") == string::npos);
@@ -1189,51 +1189,51 @@ void Cache::tick() {
                 bitlines = 4;
             } else {
                 assert(req.opcode.find("_pc3_") != string::npos);
-                compute_delay = GPIC_COMPUTE_DELAY[req.opcode];
-                access_delay = GPIC_ACCESS_DELAY[req.opcode];
+                compute_delay = MVE_COMPUTE_DELAY[req.opcode];
+                access_delay = MVE_ACCESS_DELAY[req.opcode];
                 bitlines = 1;
             }
             // hint("%s %d %d\n", req.opcode.c_str(), compute_delay, access_delay);
             if ((compute_delay + access_delay) == 0) {
-                gpic_instruction_queue[sid].erase(gpic_instruction_queue[sid].begin());
+                MVE_instruction_queue[sid].erase(MVE_instruction_queue[sid].begin());
                 continue;
             }
             assert((compute_delay + access_delay) > 0);
             hint("%s set for compute in %ld clock cycles\n", req.c_str(), compute_delay + access_delay);
-            gpic_instruction_queue[sid].erase(gpic_instruction_queue[sid].begin());
-            gpic_compute_queue[sid].push_back(make_pair(compute_delay + access_delay, req));
-            GPIC_compute_total_energy += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
-            GPIC_compute_comp_total_energy += ((float)compute_delay * 15.4) * (float)bitlines;
-            GPIC_compute_rdwr_total_energy += ((float)access_delay * 8.6) * (float)bitlines;
-            GPIC_compute_energy[sid] += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
-            GPIC_compute_comp_energy[sid] += ((float)compute_delay * 15.4) * (float)bitlines;
-            GPIC_compute_rdwr_energy[sid] += ((float)access_delay * 8.6) * (float)bitlines;
+            MVE_instruction_queue[sid].erase(MVE_instruction_queue[sid].begin());
+            MVE_compute_queue[sid].push_back(make_pair(compute_delay + access_delay, req));
+            MVE_compute_total_energy += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
+            MVE_compute_comp_total_energy += ((float)compute_delay * 15.4) * (float)bitlines;
+            MVE_compute_rdwr_total_energy += ((float)access_delay * 8.6) * (float)bitlines;
+            MVE_compute_energy[sid] += ((float)compute_delay * 15.4 + (float)access_delay * 8.6) * (float)bitlines;
+            MVE_compute_comp_energy[sid] += ((float)compute_delay * 15.4) * (float)bitlines;
+            MVE_compute_rdwr_energy[sid] += ((float)access_delay * 8.6) * (float)bitlines;
         }
     }
 
-    // Instruction at the head of the GPIC queue is computed
+    // Instruction at the head of the MVE queue is computed
     // If it's a store or load it is unpacked
     // Otherwise, it is called back
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
 
         // Check if there is any instruction ready for completion
-        if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == false)) {
+        if ((last_MVE_instruction_computed[sid] == true) && (last_MVE_instruction_sent[sid] == false)) {
 
             // There must be an instruction going on
-            assert(gpic_compute_queue[sid].size() != 0);
+            assert(MVE_compute_queue[sid].size() != 0);
 
             // Check if the instruction is done
-            if (cachesys->clk - last_gpic_instruction_compute_clk[sid] >= gpic_compute_queue[sid].at(0).first) {
-                Request req = gpic_compute_queue[sid].at(0).second;
+            if (cachesys->clk - last_MVE_instruction_compute_clk[sid] >= MVE_compute_queue[sid].at(0).first) {
+                Request req = MVE_compute_queue[sid].at(0).second;
 
                 if ((req.opcode.find("load") != string::npos) || (req.opcode.find("store") != string::npos)) {
                     // If it's a load or store, make new queries and send to this cache level's queue
 
                     hint("Unpacking loads/stores for: %s\n", req.c_str());
 
-                    assert(gpic_op_to_mem_ops[sid].count(req) == 0);
-                    gpic_op_to_mem_ops[sid][req] = std::vector<std::pair<Request, bool>>();
-                    gpic_op_to_mem_ops[sid][req].clear();
+                    assert(MVE_op_to_mem_ops[sid].count(req) == 0);
+                    MVE_op_to_mem_ops[sid][req] = std::vector<std::pair<Request, bool>>();
+                    MVE_op_to_mem_ops[sid][req].clear();
                     for (int idx = 0; idx < req.addr_starts.size(); idx++) {
                         if (req.addr_starts[idx] == 0) {
                             hint("13- %s ignored one zero-addressed memory access for %s\n", level_string.c_str(), req.c_str());
@@ -1249,7 +1249,7 @@ void Cache::tick() {
                         //     long req_addr = lower_cache_line;
                         //     for (int i = 0; i < access_needed; i++) {
                         //         // Check if this memory access has happenned before
-                        //         if (addr_exists(gpic_op_to_mem_ops[sid][req], req_addr)) {
+                        //         if (addr_exists(MVE_op_to_mem_ops[sid][req], req_addr)) {
                         //             hint("14- %s NOT sending 0x%lx to %s\n", level_string.c_str(), req_addr, level_string.c_str());
                         //         } else {
                         //             // make the request
@@ -1259,7 +1259,7 @@ void Cache::tick() {
                         //             Request mem_req(req_addr, req_type, processor_callback, req_coreid, req_unitid);
                         //             mem_req.reqid = last_id;
                         //             last_id++;
-                        //             gpic_op_to_mem_ops[sid][req].push_back(std::pair<Request, bool>(mem_req, false));
+                        //             MVE_op_to_mem_ops[sid][req].push_back(std::pair<Request, bool>(mem_req, false));
                         //         }
                         //         req_addr += block_size;
                         //     }
@@ -1272,7 +1272,7 @@ void Cache::tick() {
                             }
                             assert(VM_reg[0].size() > i);
                             if (VM_reg[0][i]) {
-                                if (addr_exists(gpic_op_to_mem_ops[sid][req], align(addr))) {
+                                if (addr_exists(MVE_op_to_mem_ops[sid][req], align(addr))) {
                                     hint("14- %s NOT sending 0x%lx to %s\n", level_string.c_str(), align(addr), level_string.c_str());
                                 } else {
                                     // make the request
@@ -1282,7 +1282,7 @@ void Cache::tick() {
                                     Request mem_req(align(addr), req_type, processor_callback, req_coreid, req_unitid);
                                     mem_req.reqid = last_id;
                                     last_id++;
-                                    gpic_op_to_mem_ops[sid][req].push_back(std::pair<Request, bool>(mem_req, false));
+                                    MVE_op_to_mem_ops[sid][req].push_back(std::pair<Request, bool>(mem_req, false));
                                     hint("unpacked: %s\n", mem_req.c_str());
                                 }
                             }
@@ -1291,27 +1291,27 @@ void Cache::tick() {
                         // }
                     }
 
-                    last_gpic_instruction_sent[sid] = true;
+                    last_MVE_instruction_sent[sid] = true;
 
-                    if (gpic_op_to_mem_ops[sid][req].size() == 0) {
+                    if (MVE_op_to_mem_ops[sid][req].size() == 0) {
                         op_trace << cachesys->clk << " " << sid << " F " << req.opcode << endl;
                         hint("17- %s: calling back %s\n", level_string.c_str(), req.c_str());
                         callbacker(req);
-                        gpic_op_to_mem_ops[sid].erase(req);
-                        gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
-                        last_gpic_instruction_compute_clk[sid] = -1;
-                        last_gpic_instruction_computed[sid] = false;
-                        last_gpic_instruction_sent[sid] = false;
+                        MVE_op_to_mem_ops[sid].erase(req);
+                        MVE_compute_queue[sid].erase(MVE_compute_queue[sid].begin());
+                        last_MVE_instruction_compute_clk[sid] = -1;
+                        last_MVE_instruction_computed[sid] = false;
+                        last_MVE_instruction_sent[sid] = false;
                     } else {
                         // send the first address
-                        for (int mem_idx = 0; mem_idx < (mshr_entry_num / gpic_CB_num); mem_idx++) {
-                            if (mem_idx >= gpic_op_to_mem_ops[sid][req].size())
+                        for (int mem_idx = 0; mem_idx < (mshr_entry_num / MVE_CB_num); mem_idx++) {
+                            if (mem_idx >= MVE_op_to_mem_ops[sid][req].size())
                                 break;
-                            hint("15- %s sending %s to %s\n", level_string.c_str(), gpic_op_to_mem_ops[sid][req][mem_idx].first.c_str(), level_string.c_str());
-                            if (send(gpic_op_to_mem_ops[sid][req][mem_idx].first) == false) {
-                                self_retry_list.push_back(gpic_op_to_mem_ops[sid][req][mem_idx].first);
+                            hint("15- %s sending %s to %s\n", level_string.c_str(), MVE_op_to_mem_ops[sid][req][mem_idx].first.c_str(), level_string.c_str());
+                            if (send(MVE_op_to_mem_ops[sid][req][mem_idx].first) == false) {
+                                self_retry_list.push_back(MVE_op_to_mem_ops[sid][req][mem_idx].first);
                             }
-                            gpic_op_to_mem_ops[sid][req][mem_idx].second = true;
+                            MVE_op_to_mem_ops[sid][req][mem_idx].second = true;
                         }
                     }
 
@@ -1321,108 +1321,108 @@ void Cache::tick() {
 
                     hint("16- %s instruction %s completed\n", level_string.c_str(), req.c_str());
                     callbacker(req);
-                    gpic_compute_queue[sid].erase(gpic_compute_queue[sid].begin());
-                    last_gpic_instruction_compute_clk[sid] = -1;
-                    last_gpic_instruction_computed[sid] = false;
-                    last_gpic_instruction_sent[sid] = false;
+                    MVE_compute_queue[sid].erase(MVE_compute_queue[sid].begin());
+                    last_MVE_instruction_compute_clk[sid] = -1;
+                    last_MVE_instruction_computed[sid] = false;
+                    last_MVE_instruction_sent[sid] = false;
                 }
             }
         }
     }
 
-    // Instruction at the head of the GPIC queue gets ready for compute
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
+    // Instruction at the head of the MVE queue gets ready for compute
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
         // Check if there is any instructions ready to be computed
-        if (last_gpic_instruction_computed[sid] == false) {
+        if (last_MVE_instruction_computed[sid] == false) {
 
             // The last instruction must not be sent
-            assert(last_gpic_instruction_sent[sid] == false);
+            assert(last_MVE_instruction_sent[sid] == false);
 
-            if (gpic_compute_queue[sid].size() != 0) {
+            if (MVE_compute_queue[sid].size() != 0) {
                 // A new instruction must be computed
-                if (gpic_compute_queue[sid].at(0).second.opcode.find("move") != string::npos) {
+                if (MVE_compute_queue[sid].at(0).second.opcode.find("move") != string::npos) {
 
                     // we should wait for the dst SA as well
-                    int sid_src = gpic_compute_queue[sid].at(0).second.sid;
-                    int sid_dst = gpic_compute_queue[sid].at(0).second.sid_dst;
+                    int sid_src = MVE_compute_queue[sid].at(0).second.sid;
+                    int sid_dst = MVE_compute_queue[sid].at(0).second.sid_dst;
                     assert(sid_dst != -1);
 
                     if (sid_src == sid_dst) {
-                        op_trace << cachesys->clk << " " << sid << " S " << gpic_compute_queue[sid].at(0).second.opcode << endl;
-                        hint("Computing %s at %ld, %zu instructions in compute queue\n", gpic_compute_queue[sid].at(0).second.c_str(), cachesys->clk, gpic_compute_queue[sid].size());
-                        last_gpic_instruction_compute_clk[sid] = cachesys->clk;
-                        last_gpic_instruction_computed[sid] = true;
+                        op_trace << cachesys->clk << " " << sid << " S " << MVE_compute_queue[sid].at(0).second.opcode << endl;
+                        hint("Computing %s at %ld, %zu instructions in compute queue\n", MVE_compute_queue[sid].at(0).second.c_str(), cachesys->clk, MVE_compute_queue[sid].size());
+                        last_MVE_instruction_compute_clk[sid] = cachesys->clk;
+                        last_MVE_instruction_computed[sid] = true;
                     } else if (sid != sid_dst) {
                         // only src SA checks for the dst, not vice versa
 
                         // Check if there is any instructions ready to be computed in the dst queue
-                        if (last_gpic_instruction_computed[sid_dst] == false) {
+                        if (last_MVE_instruction_computed[sid_dst] == false) {
 
                             // The last instruction must not be sent
-                            assert(last_gpic_instruction_sent[sid_dst] == false);
+                            assert(last_MVE_instruction_sent[sid_dst] == false);
 
-                            if (gpic_compute_queue[sid_dst].size() != 0) {
+                            if (MVE_compute_queue[sid_dst].size() != 0) {
 
                                 // Check if these are the same instructions
-                                if (gpic_compute_queue[sid].at(0).second == gpic_compute_queue[sid_dst].at(0).second) {
+                                if (MVE_compute_queue[sid].at(0).second == MVE_compute_queue[sid_dst].at(0).second) {
 
                                     // Compute both
-                                    op_trace << cachesys->clk << " " << sid << " S " << gpic_compute_queue[sid].at(0).second.opcode << endl;
-                                    op_trace << cachesys->clk << " " << sid_dst << " S " << gpic_compute_queue[sid].at(0).second.opcode << endl;
-                                    hint("Computing %s at %ld, %zu instructions in compute queue\n", gpic_compute_queue[sid].at(0).second.c_str(), cachesys->clk, gpic_compute_queue[sid].size());
-                                    hint("Computing %s at %ld, %zu instructions in compute queue\n", gpic_compute_queue[sid_dst].at(0).second.c_str(), cachesys->clk, gpic_compute_queue[sid_dst].size());
-                                    last_gpic_instruction_compute_clk[sid] = cachesys->clk;
-                                    last_gpic_instruction_compute_clk[sid_dst] = cachesys->clk;
-                                    last_gpic_instruction_computed[sid] = true;
-                                    last_gpic_instruction_computed[sid_dst] = true;
+                                    op_trace << cachesys->clk << " " << sid << " S " << MVE_compute_queue[sid].at(0).second.opcode << endl;
+                                    op_trace << cachesys->clk << " " << sid_dst << " S " << MVE_compute_queue[sid].at(0).second.opcode << endl;
+                                    hint("Computing %s at %ld, %zu instructions in compute queue\n", MVE_compute_queue[sid].at(0).second.c_str(), cachesys->clk, MVE_compute_queue[sid].size());
+                                    hint("Computing %s at %ld, %zu instructions in compute queue\n", MVE_compute_queue[sid_dst].at(0).second.c_str(), cachesys->clk, MVE_compute_queue[sid_dst].size());
+                                    last_MVE_instruction_compute_clk[sid] = cachesys->clk;
+                                    last_MVE_instruction_compute_clk[sid_dst] = cachesys->clk;
+                                    last_MVE_instruction_computed[sid] = true;
+                                    last_MVE_instruction_computed[sid_dst] = true;
                                 }
                             }
                         }
 
-                        if (last_gpic_instruction_computed[sid] == false) {
-                            hint("%s is waiting for dst SA\n", gpic_compute_queue[sid].at(0).second.c_str());
+                        if (last_MVE_instruction_computed[sid] == false) {
+                            hint("%s is waiting for dst SA\n", MVE_compute_queue[sid].at(0).second.c_str());
                         }
                     }
 
                 } else {
-                    op_trace << cachesys->clk << " " << sid << " S " << gpic_compute_queue[sid].at(0).second.opcode << endl;
-                    hint("Computing %s at %ld, %zu instructions in compute queue\n", gpic_compute_queue[sid].at(0).second.c_str(), cachesys->clk, gpic_compute_queue[sid].size());
-                    last_gpic_instruction_compute_clk[sid] = cachesys->clk;
-                    last_gpic_instruction_computed[sid] = true;
+                    op_trace << cachesys->clk << " " << sid << " S " << MVE_compute_queue[sid].at(0).second.opcode << endl;
+                    hint("Computing %s at %ld, %zu instructions in compute queue\n", MVE_compute_queue[sid].at(0).second.c_str(), cachesys->clk, MVE_compute_queue[sid].size());
+                    last_MVE_instruction_compute_clk[sid] = cachesys->clk;
+                    last_MVE_instruction_computed[sid] = true;
                 }
             }
         }
     }
 
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
-        if ((last_gpic_instruction_computed[sid] == false) && (last_gpic_instruction_sent[sid] == false)) {
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
+        if ((last_MVE_instruction_computed[sid] == false) && (last_MVE_instruction_sent[sid] == false)) {
 
-            if (gpic_compute_queue[sid].size() == 0) {
+            if (MVE_compute_queue[sid].size() == 0) {
                 // There is no instruction ready for execute
-                hint("%s GPIC %d HOST_DEVICE...\n", level_string.c_str(), sid);
-                GPIC_host_device_total_cycles++;
-                GPIC_host_device_cycles[sid]++;
+                hint("%s MVE %d HOST_DEVICE...\n", level_string.c_str(), sid);
+                MVE_host_device_total_cycles++;
+                MVE_host_device_cycles[sid]++;
             } else {
                 // Instruction at top must be move and stalled by dst SA
-                hint("%s GPIC %d MOVE...\n", level_string.c_str(), sid);
-                assert(gpic_compute_queue[sid].at(0).second.opcode.find("move") != string::npos);
-                GPIC_move_stall_total_cycles++;
-                GPIC_move_stall_cycles[sid]++;
+                hint("%s MVE %d MOVE...\n", level_string.c_str(), sid);
+                assert(MVE_compute_queue[sid].at(0).second.opcode.find("move") != string::npos);
+                MVE_move_stall_total_cycles++;
+                MVE_move_stall_cycles[sid]++;
             }
         }
 
-        if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == false)) {
+        if ((last_MVE_instruction_computed[sid] == true) && (last_MVE_instruction_sent[sid] == false)) {
             // An instruction is being computed
-            hint("%s GPIC %d COMPUTE...\n", level_string.c_str(), sid);
-            GPIC_compute_total_cycles++;
-            GPIC_compute_cycles[sid]++;
+            hint("%s MVE %d COMPUTE...\n", level_string.c_str(), sid);
+            MVE_compute_total_cycles++;
+            MVE_compute_cycles[sid]++;
         }
 
-        if ((last_gpic_instruction_computed[sid] == true) && (last_gpic_instruction_sent[sid] == true)) {
+        if ((last_MVE_instruction_computed[sid] == true) && (last_MVE_instruction_sent[sid] == true)) {
             // An instruction is computed and sent, waiting for memory instructions to be called back
-            hint("%s GPIC %d MEMORY...\n", level_string.c_str(), sid);
-            GPIC_memory_total_cycles++;
-            GPIC_memory_cycles[sid]++;
+            hint("%s MVE %d MEMORY...\n", level_string.c_str(), sid);
+            MVE_memory_total_cycles++;
+            MVE_memory_cycles[sid]++;
         }
     }
 }
@@ -1435,17 +1435,17 @@ bool Cache::finished() {
     if (self_retry_list.size() != 0)
         return false;
 
-    if (gpic_random_to_mem_ops.size() != 0)
+    if (MVE_random_to_mem_ops.size() != 0)
         return false;
 
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
-        if (gpic_op_to_mem_ops[sid].size() != 0)
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
+        if (MVE_op_to_mem_ops[sid].size() != 0)
             return false;
 
-        if (gpic_instruction_queue[sid].size() != 0)
+        if (MVE_instruction_queue[sid].size() != 0)
             return false;
 
-        if (gpic_compute_queue[sid].size() != 0)
+        if (MVE_compute_queue[sid].size() != 0)
             return false;
     }
     return true;
@@ -1468,34 +1468,34 @@ void Cache::reset_state() {
     cache_mshr_unavailable = 0;
     cache_set_unavailable = 0;
     cache_access_energy = 0;
-    GPIC_host_device_total_cycles = 0;
-    GPIC_move_stall_total_cycles = 0;
-    GPIC_compute_total_cycles = 0;
-    GPIC_memory_total_cycles = 0;
-    GPIC_compute_total_energy = 0;
-    GPIC_compute_comp_total_energy = 0;
-    GPIC_compute_rdwr_total_energy = 0;
-    assert(gpic_random_to_mem_ops.size() == 0);
-    for (int sid = 0; sid < gpic_CB_num; sid++) {
-        GPIC_host_device_cycles[sid] = 0;
-        GPIC_move_stall_cycles[sid] = 0;
-        GPIC_compute_cycles[sid] = 0;
-        GPIC_memory_cycles[sid] = 0;
-        GPIC_compute_energy[sid] = 0;
-        GPIC_compute_comp_energy[sid] = 0;
-        GPIC_compute_rdwr_energy[sid] = 0;
-        last_gpic_instruction_computed[sid] = false;
-        last_gpic_instruction_sent[sid] = false;
-        assert(gpic_op_to_mem_ops[sid].size() == 0);
+    MVE_host_device_total_cycles = 0;
+    MVE_move_stall_total_cycles = 0;
+    MVE_compute_total_cycles = 0;
+    MVE_memory_total_cycles = 0;
+    MVE_compute_total_energy = 0;
+    MVE_compute_comp_total_energy = 0;
+    MVE_compute_rdwr_total_energy = 0;
+    assert(MVE_random_to_mem_ops.size() == 0);
+    for (int sid = 0; sid < MVE_CB_num; sid++) {
+        MVE_host_device_cycles[sid] = 0;
+        MVE_move_stall_cycles[sid] = 0;
+        MVE_compute_cycles[sid] = 0;
+        MVE_memory_cycles[sid] = 0;
+        MVE_compute_energy[sid] = 0;
+        MVE_compute_comp_energy[sid] = 0;
+        MVE_compute_rdwr_energy[sid] = 0;
+        last_MVE_instruction_computed[sid] = false;
+        last_MVE_instruction_sent[sid] = false;
+        assert(MVE_op_to_mem_ops[sid].size() == 0);
 
-        for (int i = 0; i < gpic_instruction_queue[sid].size(); i++) {
-            printf("ERROR: %s remained in gpic instruction queue %s\n", gpic_instruction_queue[sid].at(0).second.c_str(), level_string.c_str());
+        for (int i = 0; i < MVE_instruction_queue[sid].size(); i++) {
+            printf("ERROR: %s remained in MVE instruction queue %s\n", MVE_instruction_queue[sid].at(0).second.c_str(), level_string.c_str());
         }
-        assert(gpic_instruction_queue[sid].size() == 0);
-        for (int i = 0; i < gpic_compute_queue[sid].size(); i++) {
-            printf("ERROR: %s remained in gpic compute queue %s\n", gpic_compute_queue[sid].at(0).second.c_str(), level_string.c_str());
+        assert(MVE_instruction_queue[sid].size() == 0);
+        for (int i = 0; i < MVE_compute_queue[sid].size(); i++) {
+            printf("ERROR: %s remained in MVE compute queue %s\n", MVE_compute_queue[sid].at(0).second.c_str(), level_string.c_str());
         }
-        assert(gpic_compute_queue[sid].size() == 0);
+        assert(MVE_compute_queue[sid].size() == 0);
     }
 
     last_id = 0;
@@ -1509,14 +1509,14 @@ void Cache::reset_state() {
     assert(retry_list.size() == 0);
     assert(self_retry_list.size() == 0);
 
-    CB_PER_V = gpic_CB_num;
+    CB_PER_V = MVE_CB_num;
     DC_reg = 1;
-    VL_reg[0] = gpic_CB_num * 256;
+    VL_reg[0] = MVE_CB_num * 256;
     VL_reg[1] = VL_reg[2] = VL_reg[3] = 1;
     VC_reg = 1;
     LS_reg[0] = LS_reg[1] = LS_reg[2] = LS_reg[3] = 0;
     SS_reg[0] = SS_reg[1] = SS_reg[2] = SS_reg[3] = 0;
-    VM_reg[0] = vector<bool>(gpic_CB_num * 256);
+    VM_reg[0] = vector<bool>(MVE_CB_num * 256);
     fill(VM_reg[0].begin(), VM_reg[0].end(), true);
     VM_reg[1] = vector<bool>(1);
     VM_reg[1][0] = true;

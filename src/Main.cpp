@@ -40,12 +40,12 @@ bool ramulator::warmup_complete = false;
 
 std::map<core_type_t, core_config_t> ramulator::core_configs;
 
-int ramulator::l3_size = 1 << 21;
-int ramulator::l3_assoc = 1 << 4;
+int ramulator::l3_size = 1 << 22;
+int ramulator::l3_assoc = 1 << 8;
 int ramulator::l3_blocksz = 1 << 6;
 int ramulator::mshr_per_bank = 64;
 float ramulator::l3_access_energy = 167.581634688;
-int ramulator::l3_gpic_SA_num = 32;
+int ramulator::l3_MVE_SA_num = 32;
 
 void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::SILVER].l1_cache_config.size = 1 << 16;
@@ -78,9 +78,9 @@ void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::GOLD].l2_cache_config.mshr_num = 46;
     ramulator::core_configs[core_type_t::GOLD].l2_cache_config.access_energy = 20.655976172;
 
-    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 18;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 19;
     // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.size = 1 << 19;
-    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 2;
+    ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 3;
     // ramulator::core_configs[core_type_t::PRIME].l2_cache_config.assoc = 1 << 3;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.blocksz = 1 << 6;
     ramulator::core_configs[core_type_t::PRIME].l2_cache_config.mshr_num = 46;
@@ -90,9 +90,9 @@ void declare_configuration(const Config &configs) {
     ramulator::core_configs[core_type_t::GOLD].ipc = 3;
     ramulator::core_configs[core_type_t::PRIME].ipc = 3;
 
-    ramulator::core_configs[core_type_t::SILVER].gpic_SA_num = 8;
-    ramulator::core_configs[core_type_t::GOLD].gpic_SA_num = 16;
-    ramulator::core_configs[core_type_t::PRIME].gpic_SA_num = 32;
+    ramulator::core_configs[core_type_t::SILVER].MVE_SA_num = 8;
+    ramulator::core_configs[core_type_t::GOLD].MVE_SA_num = 16;
+    ramulator::core_configs[core_type_t::PRIME].MVE_SA_num = 32;
 
     ramulator::core_configs[core_type_t::SILVER].out_of_order = false;
     ramulator::core_configs[core_type_t::GOLD].out_of_order = true;
@@ -218,7 +218,7 @@ void run_cputrace(const Config &configs, Memory<T, Controller> &memory, const st
 }
 
 template <typename T>
-void run_gpictrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
+void run_MVEtrace(const Config &configs, Memory<T, Controller> &memory, const std::vector<const char *> &files) {
     int cpu_tick = configs.get_cpu_tick();
     int mem_tick = configs.get_mem_tick();
     auto send = bind(&Memory<T, Controller>::send, &memory, placeholders::_1);
@@ -426,7 +426,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
     declare_configuration(configs);
 
     dc_cachesys = std::shared_ptr<CacheSystem>(new CacheSystem(configs, send_memory));
-    dc_llc = new ramulator::Cache(ramulator::l3_size, ramulator::l3_assoc, ramulator::l3_blocksz, ramulator::mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, dc_cachesys, l3_gpic_SA_num);
+    dc_llc = new ramulator::Cache(ramulator::l3_size, ramulator::l3_assoc, ramulator::l3_blocksz, ramulator::mshr_per_bank * configs.get_core_num(), l3_access_energy, Cache::Level::L3, dc_cachesys, l3_MVE_SA_num);
 
     dc_l2 = new ramulator::Cache(
         core_configs[ramulator::core_type_t::PRIME].l2_cache_config.size,
@@ -436,7 +436,7 @@ void run_dctrace(const Config &configs, Memory<T, Controller> &memory, const std
         core_configs[ramulator::core_type_t::PRIME].l2_cache_config.access_energy,
         Cache::Level::L2,
         dc_cachesys,
-        core_configs[ramulator::core_type_t::PRIME].gpic_SA_num,
+        core_configs[ramulator::core_type_t::PRIME].MVE_SA_num,
         0);
     dc_l2->concatlower(dc_llc);
 
@@ -506,8 +506,8 @@ void start_run(const Config &configs, T *spec, const vector<const char *> &files
         run_cputrace(configs, memory, files);
     } else if (configs["trace_type"] == "DRAM") {
         run_dramtrace(configs, memory, files);
-    } else if (configs["trace_type"] == "GPIC") {
-        run_gpictrace(configs, memory, files);
+    } else if (configs["trace_type"] == "MVE") {
+        run_MVEtrace(configs, memory, files);
     } else if (configs["trace_type"] == "DC") {
         run_dctrace(configs, memory, files);
     }
@@ -515,8 +515,8 @@ void start_run(const Config &configs, T *spec, const vector<const char *> &files
 
 int main(int argc, const char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <configs-file> --mode=cpu,dram,gpic [--warmup] [--core=<core-num> <core1-type> ...] [--stats <filename>] <trace-filename1> <trace-filename2>\n"
-               "Example: %s ramulator-configs.cfg --mode=gpic --core=1 gold cpu.trace cpu.trace\n",
+        printf("Usage: %s <configs-file> --mode=cpu,dram,MVE [--warmup] [--core=<core-num> <core1-type> ...] [--stats <filename>] <trace-filename1> <trace-filename2>\n"
+               "Example: %s ramulator-configs.cfg --mode=MVE --core=1 gold cpu.trace cpu.trace\n",
                argv[0], argv[0]);
         return 0;
     }
@@ -532,9 +532,9 @@ int main(int argc, const char *argv[]) {
         configs.add("trace_type", "CPU");
     } else if (strcmp(trace_type, "dram") == 0) {
         configs.add("trace_type", "DRAM");
-    } else if (strcmp(trace_type, "gpic") == 0) {
-        configs.add("trace_type", "GPIC");
-        assert((configs.has_core_caches() && configs.has_l3_cache()) || "GPIC mode need \"all\" cache levels");
+    } else if (strcmp(trace_type, "MVE") == 0) {
+        configs.add("trace_type", "MVE");
+        assert((configs.has_core_caches() && configs.has_l3_cache()) || "MVE mode need \"all\" cache levels");
     } else if (strcmp(trace_type, "dc") == 0) {
         configs.add("trace_type", "DC");
     } else {

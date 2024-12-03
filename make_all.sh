@@ -1,33 +1,31 @@
 make clean
-make -j7 CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=RISCV_ISA'
-mv ramulator ramulator_riscv
-make clean
-make -j7 CFLAGS='-DDEBUG -DEXE_TYPE=INORDER_EXE -DISA_TYPE=RISCV_ISA'
-mv ramulator ramulator_riscv_verbose
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=MVE_ISA -DLANES_PER_CB=1024 -DLANES_PER_SA=256 -DLATENCY_FILE_NAME=\"bs_intrinsics_latency\"'
+mv ramulator ramulator_MVE_bs
 
 make clean
-make -j7 CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_ino
-make clean
-make -j7 CFLAGS='-DEXE_TYPE=OUTORDER_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_ooo
-make clean
-make -j7 CFLAGS='-DEXE_TYPE=DVI_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_dvi
-make clean
-make -j7 CFLAGS='-DEXE_TYPE=ORACLE_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_ora
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=MVE_ISA -DLANES_PER_CB=256 -DLANES_PER_SA=64 -DLATENCY_FILE_NAME=\"bh_intrinsics_latency\"'
+mv ramulator ramulator_MVE_bh
 
 make clean
-make -j7 CFLAGS='-DDEBUG -DEXE_TYPE=INORDER_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_ino_verbose
-make clean
-make -j7 CFLAGS='-DDEBUG -DEXE_TYPE=OUTORDER_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_ooo_verbose
-make clean
-make -j7 CFLAGS='-DDEBUG -DEXE_TYPE=DVI_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_dvi_verbose
-make clean
-make -j7 CFLAGS='-DDEBUG -DEXE_TYPE=ORACLE_EXE -DISA_TYPE=LIME_ISA'
-mv ramulator ramulator_ora_verbose
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=MVE_ISA -DLANES_PER_CB=32 -DLANES_PER_SA=8 -DLATENCY_FILE_NAME=\"bp_intrinsics_latency\"'
+mv ramulator ramulator_MVE_bp
 
+make clean
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=MVE_ISA -DLANES_PER_CB=256 -DLANES_PER_SA=64 -DLATENCY_FILE_NAME=\"ac_intrinsics_latency\"'
+mv ramulator ramulator_MVE_ac
+
+make clean
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=RVV_ISA -DLANES_PER_CB=1024 -DLANES_PER_SA=256 -DLATENCY_FILE_NAME=\"bs_intrinsics_latency\"'
+mv ramulator ramulator_RVV_bs
+
+make clean
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=RVV_ISA -DLANES_PER_CB=256 -DLANES_PER_SA=64 -DLATENCY_FILE_NAME=\"bh_intrinsics_latency\"'
+mv ramulator ramulator_RVV_bh
+
+make clean
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=RVV_ISA -DLANES_PER_CB=32 -DLANES_PER_SA=8 -DLATENCY_FILE_NAME=\"bp_intrinsics_latency\"'
+mv ramulator ramulator_RVV_bp
+
+make clean
+make -j CFLAGS='-DEXE_TYPE=INORDER_EXE -DISA_TYPE=RVV_ISA -DLANES_PER_CB=256 -DLANES_PER_SA=64 -DLATENCY_FILE_NAME=\"ac_intrinsics_latency\"'
+mv ramulator ramulator_RVV_ac

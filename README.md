@@ -1,15 +1,15 @@
-# General-Purpose In-cache Computing (*GPIC*) Simulator
+# General-Purpose In-cache Computing (*MVE*) Simulator
 
-*GPIC* is **an in-cache computing simulator** designed on top of Ramulator \[1\] to simulate the data-parallel applications in-cache.
+*MVE* is **an in-cache computing simulator** designed on top of Ramulator \[1\] to simulate the data-parallel applications in-cache.
 
-Similar to the base simulator (Ramulator), *GPIC* is a trace-driven simulator that is designed to reply
+Similar to the base simulator (Ramulator), *MVE* is a trace-driven simulator that is designed to reply
 the dynamic instruction traces. The current version only accepts a design-specific vector ISA extension.
 
 ## Trace Format
 
 Traces provided to this simulator contain 4 types of instructions:
 
-1. **CPU Load and Store Instructions:** *GPIC* simulates the execution of scalar CPU loads and stores.
+1. **CPU Load and Store Instructions:** *MVE* simulates the execution of scalar CPU loads and stores.
 Each line of CPU load and store trace must be in this format:
 
   - `<load/store> <address> <num-cpuinst>`
@@ -24,7 +24,7 @@ The customized ISA changes the vector dimension and length using the following i
 
 
 3. **In-Cache Vector Memory Operations:** Vector memory operations include multiple strides.
-Vector memory instructions in this version of *GPIC* comes with this configuration:
+Vector memory instructions in this version of *MVE* comes with this configuration:
 
   - `<instruction> <dst> <address> -1 <stride3> <stride2> <stride1> <stride0> <num-cpuinst>`
 
@@ -33,7 +33,7 @@ Vector memory instructions in this version of *GPIC* comes with this configurati
       - `[mem-trace] <base-addr-0> <base-addr-1> ...`
 
 
-4. **In-Cache Vector Compute Operations:** Vector compute instructions in this version of *GPIC* comes with this configuration:
+4. **In-Cache Vector Compute Operations:** Vector compute instructions in this version of *MVE* comes with this configuration:
 
   - `<instruction> <dst> <src1> <src2> -1 -1 -1 -1 <num-cpuinst>`
 
@@ -47,11 +47,11 @@ First compile the simulator using these commands:
 
 Then, run your simulator using this command:
 
-    $ ./ramulator <config-file> --mode=GPIC --core=1 <core-type> --stats <stat-file> <trace-file>
+    $ ./ramulator <config-file> --mode=MVE --core=1 <core-type> --stats <stat-file> <trace-file>
 
 where:
   - `<config-file>` contains DRAM config, proportional CPU and DRAM frequency, and in-cache computing level.
-  You can find an example in `./configs/LPDDR4-config-GPIC2.cfg` for in-L2 computing.
+  You can find an example in `./configs/LPDDR4-config-MVE2.cfg` for in-L2 computing.
   
   - `<core-type>` Currently, we support 3 core configurations: `prime`, `gold`, `silver` which are Cortex-A76 cores of Qualcomm Snapdragon 855 SoC.
 
@@ -68,7 +68,7 @@ To activate debugging logs, please compile ramulator with `DEBUG` flag:
 
 ## How it works?
 
-Refer to [a relative link](LIME_README.md)
+Refer to [a relative link](MVE_README.md)
 
 ## References
 
